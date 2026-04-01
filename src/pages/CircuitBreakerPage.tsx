@@ -131,12 +131,12 @@ export function CircuitBreakerPage() {
   const halfOpenCount = items.filter((i) => i.state === 'half-open').length;
 
   const getStateBadge = (state: CircuitItem['state']) => {
-    const badges = {
+    const badges: Record<string, { label: string; className: string }> = {
       closed: { label: t('circuit_breaker.state_closed'), className: styles.badgeClosed },
       open: { label: t('circuit_breaker.state_open'), className: styles.badgeOpen },
       'half-open': { label: t('circuit_breaker.state_half_open'), className: styles.badgeHalfOpen },
     };
-    return badges[state];
+    return badges[state] ?? { label: state, className: '' };
   };
 
   const formatTime = (isoString: string) => {
