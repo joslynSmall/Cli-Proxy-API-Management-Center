@@ -22,6 +22,7 @@ import {
   IconSidebarQuota,
   IconSidebarSystem,
   IconSidebarUsage,
+  IconSidebarCircuitBreaker,
 } from '@/components/ui/icons';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 import {
@@ -42,6 +43,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   authFiles: <IconSidebarAuthFiles size={18} />,
   oauth: <IconSidebarOauth size={18} />,
   quota: <IconSidebarQuota size={18} />,
+  circuitBreaker: <IconSidebarCircuitBreaker size={18} />,
   usage: <IconSidebarUsage size={18} />,
   config: <IconSidebarConfig size={18} />,
   logs: <IconSidebarLogs size={18} />,
@@ -425,6 +427,7 @@ export function MainLayout() {
     { path: '/auth-files', label: t('nav.auth_files'), icon: sidebarIcons.authFiles },
     { path: '/oauth', label: t('nav.oauth', { defaultValue: 'OAuth' }), icon: sidebarIcons.oauth },
     { path: '/quota', label: t('nav.quota_management'), icon: sidebarIcons.quota },
+    { path: '/circuit-breaker', label: t('nav.circuit_breaker'), icon: sidebarIcons.circuitBreaker },
     { path: '/usage', label: t('nav.usage_stats'), icon: sidebarIcons.usage },
     ...(config?.loggingToFile
       ? [{ path: '/logs', label: t('nav.logs'), icon: sidebarIcons.logs }]

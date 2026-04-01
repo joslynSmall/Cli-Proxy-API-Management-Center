@@ -477,3 +477,13 @@ export function IconSidebarSystem({ size = 20, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function IconSidebarCircuitBreaker({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...sidebarSvgProps} width={size} height={size} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </svg>
+  );
+}
