@@ -75,7 +75,7 @@
     "connection_current": "当前地址",
     "connection_auto_hint": "系统将自动使用当前访问地址进行连接",
     "custom_connection_label": "自定义连接地址:",
-    "custom_connection_placeholder": "例如: https://example.com:8317",
+    "custom_connection_placeholder": "例如: https://example.com:18318",
     "custom_connection_hint": "默认使用当前访问地址，若需要可手动输入其他地址。",
     "use_current_address": "使用当前地址",
     "remember_password_label": "记住密码",

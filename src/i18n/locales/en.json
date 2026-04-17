@@ -75,7 +75,7 @@
     "connection_current": "Current URL",
     "connection_auto_hint": "The system will automatically use the current URL for connection",
     "custom_connection_label": "Custom Connection URL:",
-    "custom_connection_placeholder": "Eg: https://example.com:8317",
+    "custom_connection_placeholder": "Eg: https://example.com:18318",
     "custom_connection_hint": "By default the current URL is used. Override it here if needed.",
     "use_current_address": "Use Current URL",
     "remember_password_label": "Remember password",

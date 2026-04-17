@@ -32,7 +32,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`, then connect to your CLI Proxy API backend instance.
+Open `http://localhost:18317`, then connect to your CLI Proxy API backend instance.
 
 ### Option C: Build a single HTML file
 
@@ -53,10 +53,10 @@ Tip: opening `dist/index.html` via `file://` may be blocked by browser CORS; ser
 
 You can enter any of the following; the UI will normalize it:
 
-- `localhost:8317`
-- `http://192.168.1.10:8317`
-- `https://example.com:8317`
-- `http://example.com:8317/v0/management` (also accepted; the suffix is removed internally)
+- `localhost:18318`
+- `http://192.168.1.10:18318`
+- `https://example.com:18318`
+- `http://example.com:18318/v0/management` (also accepted; the suffix is removed internally)
 
 ### Management key (not the same as API keys)
 

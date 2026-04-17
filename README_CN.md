@@ -32,7 +32,7 @@ npm install
 npm run dev
 ```
 
-打开 `http://localhost:5173`，然后连接到你的 CLI Proxy API 后端实例。
+打开 `http://localhost:18317`，然后连接到你的 CLI Proxy API 后端实例。
 
 ### 方式 C：构建单文件 HTML
 
@@ -53,10 +53,10 @@ npm run build
 
 以下格式均可，Web UI 会自动归一化：
 
-- `localhost:8317`
-- `http://192.168.1.10:8317`
-- `https://example.com:8317`
-- `http://example.com:8317/v0/management`（也可填写，后缀会被自动去除）
+- `localhost:18318`
+- `http://192.168.1.10:18318`
+- `https://example.com:18318`
+- `http://example.com:18318/v0/management`（也可填写，后缀会被自动去除）
 
 ### 管理密钥（注意：不是 API Keys）
 

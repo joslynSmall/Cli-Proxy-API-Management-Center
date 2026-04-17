@@ -15,6 +15,7 @@ import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer'
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { DEFAULT_API_PORT } from '@/utils/constants';
 import {
   IconCode,
   IconDiamond,
@@ -629,7 +630,7 @@ export function VisualConfigEditor({
               <Input
                 label={t('config_management.visual.sections.server.port')}
                 type="number"
-                placeholder="8317"
+                placeholder={String(DEFAULT_API_PORT)}
                 value={values.port}
                 onChange={(e) => onChange({ port: e.target.value })}
                 disabled={disabled}
