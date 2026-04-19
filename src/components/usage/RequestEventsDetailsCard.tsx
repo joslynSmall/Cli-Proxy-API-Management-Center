@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { authFilesApi } from '@/services/api/authFiles';
+import { logsApi } from '@/services/api/logs';
 import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
 import type { AuthFileItem } from '@/types/authFile';
 import type { CredentialInfo } from '@/types/sourceInfo';
@@ -31,11 +33,29 @@ type RequestEventRow = {
   sourceType: string;
   authIndex: string;
   failed: boolean;
+  failureStage: string;
+  errorCode: string;
+  errorMessage: string;
+  statusCode: number;
+  requestId: string;
+  requestLogRef: string;
+  attemptCount: number;
+  upstreamRequestIds: string[];
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
   cachedTokens: number;
   totalTokens: number;
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (typeof error !== 'object' || error === null) return '';
+  if (!('message' in error)) return '';
+
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' ? message : '';
 };
 
 export interface RequestEventsDetailsCardProps {
@@ -76,6 +96,10 @@ export function RequestEventsDetailsCard({
   const [sourceFilter, setSourceFilter] = useState(ALL_FILTER);
   const [authIndexFilter, setAuthIndexFilter] = useState(ALL_FILTER);
   const [authFileMap, setAuthFileMap] = useState<Map<string, CredentialInfo>>(new Map());
+  const [activeRequestLogId, setActiveRequestLogId] = useState<string | null>(null);
+  const [requestLogContent, setRequestLogContent] = useState('');
+  const [requestLogLoading, setRequestLogLoading] = useState(false);
+  const [requestLogError, setRequestLogError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +126,39 @@ export function RequestEventsDetailsCard({
     };
   }, []);
 
+  useEffect(() => {
+    if (!activeRequestLogId) {
+      setRequestLogContent('');
+      setRequestLogError('');
+      setRequestLogLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRequestLogLoading(true);
+    setRequestLogContent('');
+    setRequestLogError('');
+
+    logsApi
+      .fetchRequestLogTextById(activeRequestLogId)
+      .then((content) => {
+        if (cancelled) return;
+        setRequestLogContent(content);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setRequestLogError(getErrorMessage(error) || t('usage_stats.request_log_modal_load_error'));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setRequestLogLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRequestLogId, t]);
+
   const sourceInfoMap = useMemo(
     () =>
       buildSourceInfoMap({
@@ -126,15 +183,29 @@ export function RequestEventsDetailsCard({
             : Date.parse(timestamp);
         const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
         const sourceRaw = String(detail.source ?? '').trim();
+        const failureStage = String(detail.failure_stage ?? '').trim();
+        const sourceFallback = sourceRaw || (failureStage === 'auth_selection' ? 'auth-selection' : '');
         const authIndexRaw = detail.auth_index as unknown;
         const authIndex =
           authIndexRaw === null || authIndexRaw === undefined || authIndexRaw === ''
             ? '-'
             : String(authIndexRaw);
-        const sourceInfo = resolveSourceDisplay(sourceRaw, authIndexRaw, sourceInfoMap, authFileMap);
+        const sourceInfo = resolveSourceDisplay(sourceFallback, authIndexRaw, sourceInfoMap, authFileMap);
         const source = sourceInfo.displayName;
         const sourceType = sourceInfo.type;
         const model = String(detail.__modelName ?? '').trim() || '-';
+        const errorCode = String(detail.error_code ?? '').trim();
+        const errorMessage = String(detail.error_message ?? '').trim();
+        const statusCode = Number(detail.status_code ?? 0);
+        const requestId = String(detail.request_id ?? '').trim();
+        const requestLogRef = String(detail.request_log_ref ?? '').trim();
+        const attemptCountRaw = Number(detail.attempt_count ?? 0);
+        const upstreamRequestIds = Array.isArray(detail.upstream_request_ids)
+          ? detail.upstream_request_ids
+              .filter((value): value is string => typeof value === 'string')
+              .map((value) => value.trim())
+              .filter(Boolean)
+          : [];
         const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
         const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
         const reasoningTokens = Math.max(toNumber(detail.tokens?.reasoning_tokens), 0);
@@ -153,11 +224,19 @@ export function RequestEventsDetailsCard({
           timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
           timestampLabel: date ? date.toLocaleString(i18n.language) : timestamp || '-',
           model,
-          sourceRaw: sourceRaw || '-',
+          sourceRaw: sourceFallback || '-',
           source,
           sourceType,
           authIndex,
           failed: detail.failed === true,
+          failureStage,
+          errorCode,
+          errorMessage,
+          statusCode: Number.isFinite(statusCode) ? statusCode : 0,
+          requestId,
+          requestLogRef,
+          attemptCount: Number.isFinite(attemptCountRaw) ? Math.max(attemptCountRaw, 0) : 0,
+          upstreamRequestIds,
           inputTokens,
           outputTokens,
           reasoningTokens,
@@ -258,6 +337,14 @@ export function RequestEventsDetailsCard({
       'source_raw',
       'auth_index',
       'result',
+      'failure_stage',
+      'error_code',
+      'error_message',
+      'status_code',
+      'request_id',
+      'request_log_ref',
+      'attempt_count',
+      'upstream_request_ids',
       'input_tokens',
       'output_tokens',
       'reasoning_tokens',
@@ -273,6 +360,14 @@ export function RequestEventsDetailsCard({
         row.sourceRaw,
         row.authIndex,
         row.failed ? 'failed' : 'success',
+        row.failureStage,
+        row.errorCode,
+        row.errorMessage,
+        row.statusCode || '',
+        row.requestId,
+        row.requestLogRef,
+        row.attemptCount || '',
+        row.upstreamRequestIds.join(' | '),
         row.inputTokens,
         row.outputTokens,
         row.reasoningTokens,
@@ -301,6 +396,14 @@ export function RequestEventsDetailsCard({
       source_raw: row.sourceRaw,
       auth_index: row.authIndex,
       failed: row.failed,
+      failure_stage: row.failureStage,
+      error_code: row.errorCode,
+      error_message: row.errorMessage,
+      status_code: row.statusCode,
+      request_id: row.requestId,
+      request_log_ref: row.requestLogRef,
+      attempt_count: row.attemptCount,
+      upstream_request_ids: row.upstreamRequestIds,
       tokens: {
         input_tokens: row.inputTokens,
         output_tokens: row.outputTokens,
@@ -318,39 +421,44 @@ export function RequestEventsDetailsCard({
     });
   };
 
+  const closeRequestLogModal = () => {
+    setActiveRequestLogId(null);
+  };
+
   return (
-    <Card
-      title={t('usage_stats.request_events_title')}
-      extra={
-        <div className={styles.requestEventsActions}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClearFilters}
-            disabled={!hasActiveFilters}
-          >
-            {t('usage_stats.clear_filters')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleExportCsv}
-            disabled={filteredRows.length === 0}
-          >
-            {t('usage_stats.export_csv')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleExportJson}
-            disabled={filteredRows.length === 0}
-          >
-            {t('usage_stats.export_json')}
-          </Button>
-        </div>
-      }
-    >
-      <div className={styles.requestEventsToolbar}>
+    <>
+      <Card
+        title={t('usage_stats.request_events_title')}
+        extra={
+          <div className={styles.requestEventsActions}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClearFilters}
+              disabled={!hasActiveFilters}
+            >
+              {t('usage_stats.clear_filters')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportCsv}
+              disabled={filteredRows.length === 0}
+            >
+              {t('usage_stats.export_csv')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportJson}
+              disabled={filteredRows.length === 0}
+            >
+              {t('usage_stats.export_json')}
+            </Button>
+          </div>
+        }
+      >
+        <div className={styles.requestEventsToolbar}>
         <div className={styles.requestEventsFilterItem}>
           <span className={styles.requestEventsFilterLabel}>
             {t('usage_stats.request_events_filter_model')}
@@ -390,85 +498,163 @@ export function RequestEventsDetailsCard({
             fullWidth={false}
           />
         </div>
-      </div>
+        </div>
 
-      {loading && rows.length === 0 ? (
-        <div className={styles.hint}>{t('common.loading')}</div>
-      ) : rows.length === 0 ? (
-        <EmptyState
-          title={t('usage_stats.request_events_empty_title')}
-          description={t('usage_stats.request_events_empty_desc')}
-        />
-      ) : filteredRows.length === 0 ? (
-        <EmptyState
-          title={t('usage_stats.request_events_no_result_title')}
-          description={t('usage_stats.request_events_no_result_desc')}
-        />
-      ) : (
-        <>
-          <div className={styles.requestEventsMeta}>
-            <span>{t('usage_stats.request_events_count', { count: filteredRows.length })}</span>
-            {filteredRows.length > MAX_RENDERED_EVENTS && (
-              <span className={styles.requestEventsLimitHint}>
-                {t('usage_stats.request_events_limit_hint', {
-                  shown: MAX_RENDERED_EVENTS,
-                  total: filteredRows.length
-                })}
-              </span>
-            )}
-          </div>
+        {loading && rows.length === 0 ? (
+          <div className={styles.hint}>{t('common.loading')}</div>
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title={t('usage_stats.request_events_empty_title')}
+            description={t('usage_stats.request_events_empty_desc')}
+          />
+        ) : filteredRows.length === 0 ? (
+          <EmptyState
+            title={t('usage_stats.request_events_no_result_title')}
+            description={t('usage_stats.request_events_no_result_desc')}
+          />
+        ) : (
+          <>
+            <div className={styles.requestEventsMeta}>
+              <span>{t('usage_stats.request_events_count', { count: filteredRows.length })}</span>
+              {filteredRows.length > MAX_RENDERED_EVENTS && (
+                <span className={styles.requestEventsLimitHint}>
+                  {t('usage_stats.request_events_limit_hint', {
+                    shown: MAX_RENDERED_EVENTS,
+                    total: filteredRows.length
+                  })}
+                </span>
+              )}
+            </div>
 
-          <div className={styles.requestEventsTableWrapper}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>{t('usage_stats.request_events_timestamp')}</th>
-                  <th>{t('usage_stats.model_name')}</th>
-                  <th>{t('usage_stats.request_events_source')}</th>
-                  <th>{t('usage_stats.request_events_auth_index')}</th>
-                  <th>{t('usage_stats.request_events_result')}</th>
-                  <th>{t('usage_stats.input_tokens')}</th>
-                  <th>{t('usage_stats.output_tokens')}</th>
-                  <th>{t('usage_stats.reasoning_tokens')}</th>
-                  <th>{t('usage_stats.cached_tokens')}</th>
-                  <th>{t('usage_stats.total_tokens')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {renderedRows.map((row) => (
-                  <tr key={row.id}>
-                    <td title={row.timestamp} className={styles.requestEventsTimestamp}>
-                      {row.timestampLabel}
-                    </td>
-                    <td className={styles.modelCell}>{row.model}</td>
-                    <td className={styles.requestEventsSourceCell} title={row.source}>
-                      <span>{row.source}</span>
-                      {row.sourceType && (
-                        <span className={styles.credentialType}>{row.sourceType}</span>
-                      )}
-                    </td>
-                    <td className={styles.requestEventsAuthIndex} title={row.authIndex}>
-                      {row.authIndex}
-                    </td>
-                    <td>
-                      <span
-                        className={row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}
-                      >
-                        {row.failed ? t('stats.failure') : t('stats.success')}
-                      </span>
-                    </td>
-                    <td>{row.inputTokens.toLocaleString()}</td>
-                    <td>{row.outputTokens.toLocaleString()}</td>
-                    <td>{row.reasoningTokens.toLocaleString()}</td>
-                    <td>{row.cachedTokens.toLocaleString()}</td>
-                    <td>{row.totalTokens.toLocaleString()}</td>
+            <div className={styles.requestEventsTableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>{t('usage_stats.request_events_timestamp')}</th>
+                    <th>{t('usage_stats.model_name')}</th>
+                    <th>{t('usage_stats.request_events_source')}</th>
+                    <th>{t('usage_stats.request_events_auth_index')}</th>
+                    <th>{t('usage_stats.request_events_result')}</th>
+                    <th>{t('usage_stats.request_events_error_summary')}</th>
+                    <th>{t('usage_stats.request_events_status_code')}</th>
+                    <th>{t('usage_stats.request_events_attempt_count')}</th>
+                    <th>{t('usage_stats.request_events_upstream_request_ids')}</th>
+                    <th>{t('usage_stats.request_events_log')}</th>
+                    <th>{t('usage_stats.input_tokens')}</th>
+                    <th>{t('usage_stats.output_tokens')}</th>
+                    <th>{t('usage_stats.reasoning_tokens')}</th>
+                    <th>{t('usage_stats.cached_tokens')}</th>
+                    <th>{t('usage_stats.total_tokens')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </Card>
+                </thead>
+                <tbody>
+                  {renderedRows.map((row) => {
+                    const logTarget = row.requestLogRef || row.requestId;
+                    const errorSummary =
+                      row.errorMessage || row.errorCode || row.failureStage || (row.failed ? '-' : '');
+                    const upstreamRequestIdsText = row.upstreamRequestIds.join(', ');
+
+                    return (
+                      <tr key={row.id}>
+                        <td title={row.timestamp} className={styles.requestEventsTimestamp}>
+                          {row.timestampLabel}
+                        </td>
+                        <td className={styles.modelCell}>{row.model}</td>
+                        <td className={styles.requestEventsSourceCell} title={row.source}>
+                          <span>{row.source}</span>
+                          {row.sourceType && (
+                            <span className={styles.credentialType}>{row.sourceType}</span>
+                          )}
+                        </td>
+                        <td className={styles.requestEventsAuthIndex} title={row.authIndex}>
+                          {row.authIndex}
+                        </td>
+                        <td>
+                          <span
+                            className={row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}
+                          >
+                            {row.failed ? t('stats.failure') : t('stats.success')}
+                          </span>
+                        </td>
+                        <td className={styles.requestEventsErrorCell} title={errorSummary || '-'}>
+                          <span className={styles.requestEventsErrorMain}>{errorSummary || '-'}</span>
+                          {(row.failureStage || row.errorCode) && (
+                            <span className={styles.requestEventsErrorMeta}>
+                              {[row.failureStage, row.errorCode].filter(Boolean).join(' / ')}
+                            </span>
+                          )}
+                        </td>
+                        <td className={styles.requestEventsStatusCode}>
+                          {row.statusCode > 0 ? row.statusCode : '-'}
+                        </td>
+                        <td className={styles.requestEventsAttemptCount}>
+                          {row.attemptCount > 0 ? row.attemptCount : '-'}
+                        </td>
+                        <td
+                          className={styles.requestEventsUpstreamRequestIds}
+                          title={upstreamRequestIdsText || '-'}
+                        >
+                          {upstreamRequestIdsText || '-'}
+                        </td>
+                        <td>
+                          {logTarget ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setActiveRequestLogId(logTarget)}
+                            >
+                              {t('usage_stats.request_events_view_log')}
+                            </Button>
+                          ) : (
+                            <span className={styles.requestEventsLogPlaceholder}>-</span>
+                          )}
+                        </td>
+                        <td>{row.inputTokens.toLocaleString()}</td>
+                        <td>{row.outputTokens.toLocaleString()}</td>
+                        <td>{row.reasoningTokens.toLocaleString()}</td>
+                        <td>{row.cachedTokens.toLocaleString()}</td>
+                        <td>{row.totalTokens.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Modal
+        open={Boolean(activeRequestLogId)}
+        onClose={closeRequestLogModal}
+        title={
+          activeRequestLogId
+            ? t('usage_stats.request_log_modal_title_with_id', { id: activeRequestLogId })
+            : t('usage_stats.request_log_modal_title')
+        }
+        width={980}
+        footer={
+          <Button variant="secondary" onClick={closeRequestLogModal}>
+            {t('common.close')}
+          </Button>
+        }
+      >
+        <div className={styles.requestLogModalBody}>
+          {activeRequestLogId && (
+            <div className={styles.requestLogMeta}>
+              <span className={styles.requestLogMetaLabel}>{t('logs.trace_request_id')}</span>
+              <span className={styles.requestLogMetaValue}>{activeRequestLogId}</span>
+            </div>
+          )}
+          {requestLogLoading ? (
+            <div className={styles.hint}>{t('common.loading')}</div>
+          ) : requestLogError ? (
+            <div className={styles.errorBox}>{requestLogError}</div>
+          ) : (
+            <pre className={styles.requestLogModalPre}>{requestLogContent || '-'}</pre>
+          )}
+        </div>
+      </Modal>
+    </>
   );
 }

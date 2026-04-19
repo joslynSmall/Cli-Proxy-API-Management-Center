@@ -38,7 +38,11 @@ export interface ModelPrice {
 export interface UsageDetail {
   timestamp: string;
   source: string;
-  auth_index: number;
+  auth_index: string | number | null;
+  request_id?: string;
+  request_log_ref?: string;
+  attempt_count?: number;
+  upstream_request_ids?: string[];
   tokens: {
     input_tokens: number;
     output_tokens: number;
@@ -48,6 +52,10 @@ export interface UsageDetail {
     total_tokens: number;
   };
   failed: boolean;
+  failure_stage?: string;
+  error_code?: string;
+  error_message?: string;
+  status_code?: number;
   __modelName?: string;
   __timestampMs?: number;
 }
@@ -494,9 +502,35 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
         details.push({
           timestamp,
           source: normalizeSource(detailRaw.source),
-          auth_index: detailRaw.auth_index as unknown as number,
+          auth_index: (detailRaw.auth_index as string | number | null | undefined) ?? null,
+          request_id:
+            typeof detailRaw.request_id === 'string' ? detailRaw.request_id.trim() : undefined,
+          request_log_ref:
+            typeof detailRaw.request_log_ref === 'string'
+              ? detailRaw.request_log_ref.trim()
+              : undefined,
+          attempt_count:
+            typeof detailRaw.attempt_count === 'number' ? detailRaw.attempt_count : undefined,
+          upstream_request_ids: Array.isArray(detailRaw.upstream_request_ids)
+            ? detailRaw.upstream_request_ids
+                .filter((value): value is string => typeof value === 'string')
+                .map((value) => value.trim())
+                .filter(Boolean)
+            : undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
+          failure_stage:
+            typeof detailRaw.failure_stage === 'string'
+              ? detailRaw.failure_stage.trim()
+              : undefined,
+          error_code:
+            typeof detailRaw.error_code === 'string' ? detailRaw.error_code.trim() : undefined,
+          error_message:
+            typeof detailRaw.error_message === 'string'
+              ? detailRaw.error_message.trim()
+              : undefined,
+          status_code:
+            typeof detailRaw.status_code === 'number' ? detailRaw.status_code : undefined,
           __modelName: modelName,
           __timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
         });
@@ -565,9 +599,35 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
         details.push({
           timestamp,
           source: normalizeSource(detailRaw.source),
-          auth_index: detailRaw.auth_index as unknown as number,
+          auth_index: (detailRaw.auth_index as string | number | null | undefined) ?? null,
+          request_id:
+            typeof detailRaw.request_id === 'string' ? detailRaw.request_id.trim() : undefined,
+          request_log_ref:
+            typeof detailRaw.request_log_ref === 'string'
+              ? detailRaw.request_log_ref.trim()
+              : undefined,
+          attempt_count:
+            typeof detailRaw.attempt_count === 'number' ? detailRaw.attempt_count : undefined,
+          upstream_request_ids: Array.isArray(detailRaw.upstream_request_ids)
+            ? detailRaw.upstream_request_ids
+                .filter((value): value is string => typeof value === 'string')
+                .map((value) => value.trim())
+                .filter(Boolean)
+            : undefined,
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
+          failure_stage:
+            typeof detailRaw.failure_stage === 'string'
+              ? detailRaw.failure_stage.trim()
+              : undefined,
+          error_code:
+            typeof detailRaw.error_code === 'string' ? detailRaw.error_code.trim() : undefined,
+          error_message:
+            typeof detailRaw.error_message === 'string'
+              ? detailRaw.error_message.trim()
+              : undefined,
+          status_code:
+            typeof detailRaw.status_code === 'number' ? detailRaw.status_code : undefined,
           __modelName: modelName,
           __endpoint: endpoint,
           __endpointMethod: endpointMethod,

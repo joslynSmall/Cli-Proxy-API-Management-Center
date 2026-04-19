@@ -951,6 +951,98 @@
   white-space: nowrap;
 }
 
+.requestEventsErrorCell {
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.requestEventsErrorMain {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.requestEventsErrorMeta {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+}
+
+.requestEventsStatusCode {
+  white-space: nowrap;
+  min-width: 72px;
+}
+
+.requestEventsAttemptCount {
+  white-space: nowrap;
+  min-width: 72px;
+}
+
+.requestEventsUpstreamRequestIds {
+  min-width: 180px;
+  max-width: 260px;
+  word-break: break-all;
+  font-size: 11px;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+}
+
+.requestEventsLogPlaceholder {
+  color: var(--text-tertiary);
+}
+
+.requestLogModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 240px;
+}
+
+.requestLogMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.requestLogMetaLabel {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.requestLogMetaValue {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  color: var(--text-primary);
+}
+
+.requestLogModalPre {
+  margin: 0;
+  padding: 14px;
+  min-height: 320px;
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  border-radius: $radius-md;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+}
+
 .chartLineHeader {
   display: inline-flex;
   align-items: center;

@@ -45,4 +45,15 @@ export const logsApi = {
       responseType: 'blob',
       timeout: LOGS_TIMEOUT_MS
     }),
+
+  fetchRequestLogTextById: async (id: string): Promise<string> => {
+    const response = await apiClient.requestRaw({
+      url: `/request-log-by-id/${encodeURIComponent(id)}`,
+      method: 'GET',
+      responseType: 'text',
+      timeout: LOGS_TIMEOUT_MS,
+      transformResponse: [(data: string) => data]
+    });
+    return typeof response.data === 'string' ? response.data : String(response.data ?? '');
+  }
 };
