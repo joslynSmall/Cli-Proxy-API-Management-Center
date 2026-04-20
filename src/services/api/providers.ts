@@ -16,6 +16,21 @@ import type {
   ModelAlias
 } from '@/types';
 
+export interface OpenAICompatSyncRequest {
+  name?: string;
+  all?: boolean;
+  timeout_seconds?: number;
+}
+
+export interface OpenAICompatSyncResponse {
+  status?: string;
+  providers?: string[];
+  updated_count?: number;
+  fetched_count?: number;
+  unmatched_models?: Record<string, string[]>;
+  errors?: unknown[];
+}
+
 const serializeHeaders = (headers?: Record<string, string>) => (headers && Object.keys(headers).length ? headers : undefined);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -213,6 +228,9 @@ export const providersApi = {
     const list = extractArrayPayload(data, 'openai-compatibility');
     return list.map((item) => normalizeOpenAIProvider(item)).filter(Boolean) as OpenAIProviderConfig[];
   },
+
+  syncOpenAICompatModels: (payload: OpenAICompatSyncRequest) =>
+    apiClient.post<OpenAICompatSyncResponse>('/openai-compatibility/sync-models', payload),
 
   saveOpenAIProviders: (providers: OpenAIProviderConfig[]) =>
     apiClient.put('/openai-compatibility', providers.map((item) => serializeOpenAIProvider(item))),

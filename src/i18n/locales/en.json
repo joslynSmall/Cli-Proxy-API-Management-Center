@@ -1440,7 +1440,16 @@
     "clear_login_title": "Local Login Data",
     "clear_login_desc": "Clear locally saved login data and sign out. Usage stats pricing settings will remain untouched.",
     "clear_login_button": "Clear login data",
-    "clear_login_confirm": "Clear local login data and sign out now?"
+    "clear_login_confirm": "Clear local login data and sign out now?",
+    "sync_models_title": "Sync Models",
+    "sync_models_desc": "Sync available models from OpenAI-compatible providers.",
+    "sync_models_select_provider": "Select provider",
+    "sync_models_button": "Sync Models",
+    "sync_models_syncing": "Syncing...",
+    "sync_models_success": "Models synced successfully",
+    "sync_models_failed": "Failed to sync models",
+    "sync_models_no_provider": "No providers found",
+    "sync_models_select_first": "Please select a provider first"
   },
   "notification": {
     "debug_updated": "Debug settings updated",

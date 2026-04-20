@@ -1440,7 +1440,16 @@
     "clear_login_title": "本地登录信息",
     "clear_login_desc": "清理本地保存的登录信息并退出登录，不会影响使用统计中的价格设置。",
     "clear_login_button": "清理登录信息",
-    "clear_login_confirm": "确认清理本地登录信息并退出登录？"
+    "clear_login_confirm": "确认清理本地登录信息并退出登录？",
+    "sync_models_title": "同步模型",
+    "sync_models_desc": "从 OpenAI 兼容提供商同步可用模型列表。",
+    "sync_models_select_provider": "选择提供商",
+    "sync_models_button": "同步模型",
+    "sync_models_syncing": "同步中...",
+    "sync_models_success": "模型同步成功",
+    "sync_models_failed": "模型同步失败",
+    "sync_models_no_provider": "未找到提供商",
+    "sync_models_select_first": "请先选择提供商"
   },
   "notification": {
     "debug_updated": "调试设置已更新",

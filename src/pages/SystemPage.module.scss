@@ -347,6 +347,18 @@
   text-overflow: ellipsis;
 }
 
+.syncModelsRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  flex-wrap: wrap;
+}
+
+.syncModelsSelect {
+  flex: 0 1 280px;
+  min-width: 180px;
+}
+
 @media (max-width: 768px) {
   .aboutLogo {
     width: 92px;

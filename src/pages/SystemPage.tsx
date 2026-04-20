@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { Select, type SelectOption } from '@/components/ui/Select';
 import { IconGithub, IconBookOpen, IconExternalLink, IconCode } from '@/components/ui/icons';
 import {
   useAuthStore,
@@ -14,6 +15,7 @@ import {
 } from '@/stores';
 import { configApi, versionApi } from '@/services/api';
 import { apiKeysApi } from '@/services/api/apiKeys';
+import { providersApi } from '@/services/api/providers';
 import { classifyModels } from '@/utils/models';
 import { STORAGE_KEY_AUTH } from '@/utils/constants';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
@@ -92,6 +94,10 @@ export function SystemPage() {
   const [requestLogTouched, setRequestLogTouched] = useState(false);
   const [requestLogSaving, setRequestLogSaving] = useState(false);
   const [checkingVersion, setCheckingVersion] = useState(false);
+  const [syncingModels, setSyncingModels] = useState(false);
+  const [openAIProviders, setOpenAIProviders] = useState<SelectOption[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string>('');
+  const [loadingProviders, setLoadingProviders] = useState(false);
 
   const apiKeysCache = useRef<string[]>([]);
   const versionTapCount = useRef(0);
@@ -339,6 +345,48 @@ export function SystemPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.connectionStatus, auth.apiBase]);
 
+  // Fetch OpenAI-compatible providers for sync dropdown
+  useEffect(() => {
+    if (auth.connectionStatus !== 'connected') return;
+    setLoadingProviders(true);
+    providersApi.getOpenAIProviders()
+      .then((providers) => {
+        const options: SelectOption[] = providers.map((p) => ({
+          value: p.name,
+          label: p.name,
+        }));
+        setOpenAIProviders(options);
+        if (options.length > 0 && !selectedProvider) {
+          setSelectedProvider(options[0].value);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load OpenAI providers:', err);
+      })
+      .finally(() => {
+        setLoadingProviders(false);
+      });
+  }, [auth.connectionStatus, selectedProvider]);
+
+  const handleSyncModels = async () => {
+    if (!selectedProvider) {
+      showNotification(t('system_info.sync_models_select_first'), 'warning');
+      return;
+    }
+    setSyncingModels(true);
+    try {
+      await providersApi.syncOpenAICompatModels({ name: selectedProvider });
+      showNotification(t('system_info.sync_models_success'), 'success');
+      // Auto-refresh models list after successful sync
+      await fetchModels({ forceRefresh: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showNotification(`${t('system_info.sync_models_failed')}: ${msg}`, 'error');
+    } finally {
+      setSyncingModels(false);
+    }
+  };
+
   return (
     <div className={styles.container}>
       <h1 className={styles.pageTitle}>{t('system_info.title')}</h1>
@@ -450,6 +498,32 @@ export function SystemPage() {
               </div>
             </a>
           </div>
+        </Card>
+
+        <Card title={t('system_info.sync_models_title')}>
+          <p className={styles.sectionDescription}>{t('system_info.sync_models_desc')}</p>
+          <div className={styles.syncModelsRow}>
+            <div className={styles.syncModelsSelect}>
+              <Select
+                value={selectedProvider}
+                options={openAIProviders}
+                onChange={setSelectedProvider}
+                placeholder={t('system_info.sync_models_select_provider')}
+                disabled={loadingProviders || auth.connectionStatus !== 'connected' || openAIProviders.length === 0}
+              />
+            </div>
+            <Button
+              variant="primary"
+              onClick={handleSyncModels}
+              loading={syncingModels}
+              disabled={auth.connectionStatus !== 'connected' || !selectedProvider}
+            >
+              {syncingModels ? t('system_info.sync_models_syncing') : t('system_info.sync_models_button')}
+            </Button>
+          </div>
+          {openAIProviders.length === 0 && !loadingProviders && (
+            <div className="hint">{t('system_info.sync_models_no_provider')}</div>
+          )}
         </Card>
 
         <Card
