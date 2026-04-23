@@ -137,7 +137,28 @@ export function AiProvidersOpenAIEditPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleBack]);
 
-  const canSave = !disableControls && !loading && !saving && !invalidIndexParam && !invalidIndex && !isTestingKeys;
+  const circuitBreakerFailureError =
+    form.circuitBreakerFailureThreshold === undefined
+      ? ''
+      : Number.isInteger(form.circuitBreakerFailureThreshold) && form.circuitBreakerFailureThreshold > 0
+        ? ''
+        : t('config_management.visual.validation.positive_integer', { defaultValue: '请输入正整数' });
+  const circuitBreakerRecoveryError =
+    form.circuitBreakerRecoveryTimeout === undefined
+      ? ''
+      : Number.isInteger(form.circuitBreakerRecoveryTimeout) && form.circuitBreakerRecoveryTimeout > 0
+        ? ''
+        : t('config_management.visual.validation.positive_integer', { defaultValue: '请输入正整数' });
+  const hasCircuitBreakerErrors = Boolean(circuitBreakerFailureError || circuitBreakerRecoveryError);
+
+  const canSave =
+    !disableControls &&
+    !loading &&
+    !saving &&
+    !invalidIndexParam &&
+    !invalidIndex &&
+    !isTestingKeys &&
+    !hasCircuitBreakerErrors;
   const hasConfiguredModels = form.modelEntries.some((entry) => entry.name.trim());
   const hasTestableKeys = form.apiKeyEntries.some((entry) => entry.apiKey?.trim());
   const modelSelectOptions = useMemo(() => {
@@ -567,6 +588,44 @@ export function AiProvidersOpenAIEditPage() {
               value={form.baseUrl}
               onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))}
               disabled={saving || disableControls || isTestingKeys}
+            />
+
+            <Input
+              label={t('ai_providers.circuit_breaker_failure_threshold_label')}
+              hint={t('ai_providers.circuit_breaker_failure_threshold_hint')}
+              type="number"
+              step={1}
+              min={1}
+              value={form.circuitBreakerFailureThreshold ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const parsed = raw.trim() === '' ? undefined : Number(raw);
+                setForm((prev) => ({
+                  ...prev,
+                  circuitBreakerFailureThreshold: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+                }));
+              }}
+              disabled={saving || disableControls || isTestingKeys}
+              error={circuitBreakerFailureError || undefined}
+            />
+
+            <Input
+              label={t('ai_providers.circuit_breaker_recovery_timeout_label')}
+              hint={t('ai_providers.circuit_breaker_recovery_timeout_hint')}
+              type="number"
+              step={1}
+              min={1}
+              value={form.circuitBreakerRecoveryTimeout ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const parsed = raw.trim() === '' ? undefined : Number(raw);
+                setForm((prev) => ({
+                  ...prev,
+                  circuitBreakerRecoveryTimeout: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+                }));
+              }}
+              disabled={saving || disableControls || isTestingKeys}
+              error={circuitBreakerRecoveryError || undefined}
             />
 
             <HeaderInputList

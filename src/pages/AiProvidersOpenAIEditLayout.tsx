@@ -14,6 +14,8 @@ import type { ModelEntry, OpenAIFormState } from '@/components/providers/types';
 import type { KeyTestStatus } from '@/stores/useOpenAIEditDraftStore';
 
 type LocationState = { fromAiProviders?: boolean } | null;
+const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
+const DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT = 1800;
 
 export type OpenAIEditOutletContext = {
   hasIndexParam: boolean;
@@ -49,6 +51,8 @@ const buildEmptyForm = (): OpenAIFormState => ({
   apiKeyEntries: [buildApiKeyEntry()],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
+  circuitBreakerFailureThreshold: DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+  circuitBreakerRecoveryTimeout: DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
 });
 
 const parseIndexParam = (value: string | undefined) => {
@@ -114,6 +118,16 @@ const buildOpenAISignature = (form: OpenAIFormState, testModel: string) =>
     apiKeyEntries: normalizeApiKeyEntries(form.apiKeyEntries),
     models: normalizeModelEntries(form.modelEntries),
     testModel: String(testModel ?? '').trim(),
+    circuitBreakerFailureThreshold:
+      form.circuitBreakerFailureThreshold !== undefined &&
+      Number.isFinite(form.circuitBreakerFailureThreshold)
+        ? form.circuitBreakerFailureThreshold
+        : null,
+    circuitBreakerRecoveryTimeout:
+      form.circuitBreakerRecoveryTimeout !== undefined &&
+      Number.isFinite(form.circuitBreakerRecoveryTimeout)
+        ? form.circuitBreakerRecoveryTimeout
+        : null,
   });
 
 export function AiProvidersOpenAIEditLayout() {
@@ -279,6 +293,10 @@ export function AiProvidersOpenAIEditLayout() {
         apiKeyEntries: initialData.apiKeyEntries?.length
           ? initialData.apiKeyEntries
           : [buildApiKeyEntry()],
+        circuitBreakerFailureThreshold:
+          initialData.circuitBreakerFailureThreshold ?? DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        circuitBreakerRecoveryTimeout:
+          initialData.circuitBreakerRecoveryTimeout ?? DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
       };
 
       const available = modelEntries.map((entry) => entry.name.trim()).filter(Boolean);
@@ -399,6 +417,21 @@ export function AiProvidersOpenAIEditLayout() {
       return;
     }
 
+    const circuitBreakerFailureInvalid =
+      form.circuitBreakerFailureThreshold !== undefined &&
+      (!Number.isFinite(form.circuitBreakerFailureThreshold) ||
+        !Number.isInteger(form.circuitBreakerFailureThreshold) ||
+        form.circuitBreakerFailureThreshold <= 0);
+    const circuitBreakerRecoveryInvalid =
+      form.circuitBreakerRecoveryTimeout !== undefined &&
+      (!Number.isFinite(form.circuitBreakerRecoveryTimeout) ||
+        !Number.isInteger(form.circuitBreakerRecoveryTimeout) ||
+        form.circuitBreakerRecoveryTimeout <= 0);
+    if (circuitBreakerFailureInvalid || circuitBreakerRecoveryInvalid) {
+      showNotification(t('config_management.visual.validation.positive_integer'), 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload: OpenAIProviderConfig = {
@@ -419,6 +452,20 @@ export function AiProvidersOpenAIEditLayout() {
       if (resolvedTestModel) payload.testModel = resolvedTestModel;
       const models = entriesToModels(form.modelEntries);
       if (models.length) payload.models = models;
+      payload.circuitBreakerFailureThreshold =
+        form.circuitBreakerFailureThreshold !== undefined &&
+        Number.isFinite(form.circuitBreakerFailureThreshold) &&
+        Number.isInteger(form.circuitBreakerFailureThreshold) &&
+        form.circuitBreakerFailureThreshold > 0
+          ? Math.trunc(form.circuitBreakerFailureThreshold)
+          : DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD;
+      payload.circuitBreakerRecoveryTimeout =
+        form.circuitBreakerRecoveryTimeout !== undefined &&
+        Number.isFinite(form.circuitBreakerRecoveryTimeout) &&
+        Number.isInteger(form.circuitBreakerRecoveryTimeout) &&
+        form.circuitBreakerRecoveryTimeout > 0
+          ? Math.trunc(form.circuitBreakerRecoveryTimeout)
+          : DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT;
 
       const nextList =
         editIndex !== null

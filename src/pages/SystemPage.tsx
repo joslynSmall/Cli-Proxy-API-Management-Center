@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { Select, type SelectOption } from '@/components/ui/Select';
+import { OpenAICompatSyncModal } from '@/components/system/OpenAICompatSyncModal';
 import { IconGithub, IconBookOpen, IconExternalLink, IconCode } from '@/components/ui/icons';
 import {
   useAuthStore,
@@ -95,9 +96,18 @@ export function SystemPage() {
   const [requestLogSaving, setRequestLogSaving] = useState(false);
   const [checkingVersion, setCheckingVersion] = useState(false);
   const [syncingModels, setSyncingModels] = useState(false);
+  const [loadingRawModels, setLoadingRawModels] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
   const [openAIProviders, setOpenAIProviders] = useState<SelectOption[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncModalStep, setSyncModalStep] = useState<'select' | 'alias'>('select');
+  const [rawModels, setRawModels] = useState<string[]>([]);
+  const [selectedModelNames, setSelectedModelNames] = useState<Set<string>>(new Set());
+  const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
+  const [matchedModelNames, setMatchedModelNames] = useState<Set<string>>(new Set());
+  const [syncSearch, setSyncSearch] = useState('');
 
   const apiKeysCache = useRef<string[]>([]);
   const versionTapCount = useRef(0);
@@ -368,16 +378,101 @@ export function SystemPage() {
       });
   }, [auth.connectionStatus, selectedProvider]);
 
-  const handleSyncModels = async () => {
+  const resetSyncModal = useCallback(() => {
+    setSyncModalOpen(false);
+    setSyncModalStep('select');
+    setRawModels([]);
+    setSelectedModelNames(new Set());
+    setAliasDrafts({});
+    setMatchedModelNames(new Set());
+    setSyncSearch('');
+  }, []);
+
+  const getVisibleModelNames = useCallback(() => {
+    const keyword = syncSearch.trim().toLowerCase();
+    if (!keyword) return rawModels;
+    return rawModels.filter((name) => {
+      const alias = (aliasDrafts[name] ?? '').toLowerCase();
+      return name.toLowerCase().includes(keyword) || alias.includes(keyword);
+    });
+  }, [aliasDrafts, rawModels, syncSearch]);
+
+  const handleFetchSyncModels = async () => {
     if (!selectedProvider) {
       showNotification(t('system_info.sync_models_select_first'), 'warning');
       return;
     }
+
+    setLoadingRawModels(true);
+    try {
+      const res = await providersApi.previewOpenAICompatModels(selectedProvider);
+      setRawModels(res.models ?? []);
+      setSelectedModelNames(new Set());
+      setAliasDrafts({});
+      setMatchedModelNames(new Set());
+      setSyncSearch('');
+      setSyncModalStep('select');
+      setSyncModalOpen(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showNotification(`${t('system_info.sync_models_failed')}: ${msg}`, 'error');
+    } finally {
+      setLoadingRawModels(false);
+    }
+  };
+
+  const handleSubmitSelection = async () => {
+    if (selectedModelNames.size === 0) {
+      showNotification(t('system_info.sync_models_select_at_least_one'), 'warning');
+      return;
+    }
+
+    setLookupLoading(true);
+    try {
+      const names = Array.from(selectedModelNames);
+      const res = await providersApi.lookupOpenAICompatAliases(names);
+      const nextDrafts: Record<string, string> = {};
+      const matchedSet = new Set<string>();
+
+      names.forEach((name) => {
+        nextDrafts[name] = '';
+      });
+
+      (res.matched ?? []).forEach((item) => {
+        nextDrafts[item.name] = item.alias;
+        matchedSet.add(item.name);
+      });
+
+      setAliasDrafts(nextDrafts);
+      setMatchedModelNames(matchedSet);
+      setSyncModalStep('alias');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showNotification(`${t('system_info.sync_models_alias_lookup_failed')}: ${msg}`, 'error');
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const handleConfirmSync = async () => {
+    const payload = Array.from(selectedModelNames).map((name) => ({
+      name,
+      alias: (aliasDrafts[name] ?? '').trim(),
+    }));
+    if (payload.some((item) => !item.alias)) {
+      showNotification(t('system_info.sync_models_alias_required'), 'warning');
+      return;
+    }
+
     setSyncingModels(true);
     try {
-      await providersApi.syncOpenAICompatModels({ name: selectedProvider });
+      await providersApi.syncOpenAICompatModels({
+        name: selectedProvider,
+        preview: false,
+        selected_models: payload,
+      });
       showNotification(t('system_info.sync_models_success'), 'success');
-      // Auto-refresh models list after successful sync
+      resetSyncModal();
       await fetchModels({ forceRefresh: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -514,17 +609,57 @@ export function SystemPage() {
             </div>
             <Button
               variant="primary"
-              onClick={handleSyncModels}
-              loading={syncingModels}
+              onClick={handleFetchSyncModels}
+              loading={loadingRawModels}
               disabled={auth.connectionStatus !== 'connected' || !selectedProvider}
             >
-              {syncingModels ? t('system_info.sync_models_syncing') : t('system_info.sync_models_button')}
+              {loadingRawModels
+                ? t('system_info.sync_models_loading_list')
+                : t('system_info.sync_models_button')}
             </Button>
           </div>
           {openAIProviders.length === 0 && !loadingProviders && (
             <div className="hint">{t('system_info.sync_models_no_provider')}</div>
           )}
         </Card>
+
+        <OpenAICompatSyncModal
+          open={syncModalOpen}
+          providerName={selectedProvider}
+          rawModels={rawModels}
+          selectedModelNames={selectedModelNames}
+          matchedModelNames={matchedModelNames}
+          aliasDrafts={aliasDrafts}
+          search={syncSearch}
+          step={syncModalStep}
+          lookupLoading={lookupLoading}
+          saving={syncingModels}
+          onClose={resetSyncModal}
+          onBack={() => setSyncModalStep('select')}
+          onSearchChange={setSyncSearch}
+          onToggleModel={(name) => {
+            setSelectedModelNames((prev) => {
+              const next = new Set(prev);
+              if (next.has(name)) {
+                next.delete(name);
+              } else {
+                next.add(name);
+              }
+              return next;
+            });
+          }}
+          onSelectVisible={() => {
+            setSelectedModelNames((prev) => new Set([...prev, ...getVisibleModelNames()]));
+          }}
+          onClearSelection={() => {
+            setSelectedModelNames(new Set());
+          }}
+          onSubmitSelection={() => void handleSubmitSelection()}
+          onAliasChange={(name, value) => {
+            setAliasDrafts((prev) => ({ ...prev, [name]: value }));
+          }}
+          onConfirm={() => void handleConfirmSync()}
+        />
 
         <Card
           title={t('system_info.models_title')}

@@ -16,6 +16,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
+import { useInterval } from '@/hooks/useInterval';
 import { useThemeStore, useConfigStore } from '@/stores';
 import {
   StatCards,
@@ -56,8 +57,12 @@ ChartJS.register(
 
 const CHART_LINES_STORAGE_KEY = 'cli-proxy-usage-chart-lines-v1';
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
+const AUTO_REFRESH_ENABLED_STORAGE_KEY = 'cli-proxy-usage-auto-refresh-enabled-v1';
+const AUTO_REFRESH_INTERVAL_STORAGE_KEY = 'cli-proxy-usage-auto-refresh-interval-v1';
 const DEFAULT_CHART_LINES = ['all'];
 const DEFAULT_TIME_RANGE: UsageTimeRange = '24h';
+const DEFAULT_AUTO_REFRESH_ENABLED = true;
+const DEFAULT_AUTO_REFRESH_INTERVAL_MS = 10_000;
 const MAX_CHART_LINES = 9;
 const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: UsageTimeRange; labelKey: string }> = [
   { value: 'all', labelKey: 'usage_stats.range_all' },
@@ -65,6 +70,15 @@ const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: UsageTimeRange; labelKey: strin
   { value: '24h', labelKey: 'usage_stats.range_24h' },
   { value: '7d', labelKey: 'usage_stats.range_7d' },
 ];
+const AUTO_REFRESH_INTERVAL_OPTIONS: ReadonlyArray<{ value: number; labelKey: string }> = [
+  { value: 5_000, labelKey: 'usage_stats.auto_refresh_5s' },
+  { value: 10_000, labelKey: 'usage_stats.auto_refresh_10s' },
+  { value: 30_000, labelKey: 'usage_stats.auto_refresh_30s' },
+  { value: 60_000, labelKey: 'usage_stats.auto_refresh_60s' }
+];
+const AUTO_REFRESH_INTERVAL_SET = new Set<number>(
+  AUTO_REFRESH_INTERVAL_OPTIONS.map((option) => option.value)
+);
 const HOUR_WINDOW_BY_TIME_RANGE: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7,
   '24h': 24,
@@ -115,6 +129,45 @@ const loadTimeRange = (): UsageTimeRange => {
   }
 };
 
+const loadAutoRefreshEnabled = (): boolean => {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return DEFAULT_AUTO_REFRESH_ENABLED;
+    }
+    const raw = localStorage.getItem(AUTO_REFRESH_ENABLED_STORAGE_KEY);
+    if (raw === null) {
+      return DEFAULT_AUTO_REFRESH_ENABLED;
+    }
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'boolean' ? parsed : DEFAULT_AUTO_REFRESH_ENABLED;
+  } catch {
+    return DEFAULT_AUTO_REFRESH_ENABLED;
+  }
+};
+
+const normalizeAutoRefreshInterval = (value: unknown): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_AUTO_REFRESH_INTERVAL_MS;
+  }
+  return AUTO_REFRESH_INTERVAL_SET.has(parsed) ? parsed : DEFAULT_AUTO_REFRESH_INTERVAL_MS;
+};
+
+const loadAutoRefreshInterval = (): number => {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return DEFAULT_AUTO_REFRESH_INTERVAL_MS;
+    }
+    const raw = localStorage.getItem(AUTO_REFRESH_INTERVAL_STORAGE_KEY);
+    if (!raw) {
+      return DEFAULT_AUTO_REFRESH_INTERVAL_MS;
+    }
+    return normalizeAutoRefreshInterval(raw);
+  } catch {
+    return DEFAULT_AUTO_REFRESH_INTERVAL_MS;
+  }
+};
+
 export function UsagePage() {
   const { t } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -144,12 +197,22 @@ export function UsagePage() {
   // Chart lines state
   const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(loadAutoRefreshEnabled);
+  const [autoRefreshIntervalMs, setAutoRefreshIntervalMs] = useState<number>(loadAutoRefreshInterval);
 
   const timeRangeOptions = useMemo(
     () =>
       TIME_RANGE_OPTIONS.map((opt) => ({
         value: opt.value,
         label: t(opt.labelKey)
+      })),
+    [t]
+  );
+  const autoRefreshIntervalOptions = useMemo(
+    () =>
+      AUTO_REFRESH_INTERVAL_OPTIONS.map((option) => ({
+        value: String(option.value),
+        label: t(option.labelKey)
       })),
     [t]
   );
@@ -163,6 +226,9 @@ export function UsagePage() {
 
   const handleChartLinesChange = useCallback((lines: string[]) => {
     setChartLines(normalizeChartLines(lines));
+  }, []);
+  const handleAutoRefreshIntervalChange = useCallback((value: number) => {
+    setAutoRefreshIntervalMs(normalizeAutoRefreshInterval(value));
   }, []);
 
   useEffect(() => {
@@ -186,6 +252,38 @@ export function UsagePage() {
       // Ignore storage errors.
     }
   }, [timeRange]);
+
+  useEffect(() => {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      localStorage.setItem(AUTO_REFRESH_ENABLED_STORAGE_KEY, JSON.stringify(autoRefreshEnabled));
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      localStorage.setItem(AUTO_REFRESH_INTERVAL_STORAGE_KEY, String(autoRefreshIntervalMs));
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [autoRefreshIntervalMs]);
+
+  useInterval(
+    () => {
+      if (loading || exporting || importing) {
+        return;
+      }
+      void loadUsage().catch(() => {});
+    },
+    autoRefreshEnabled ? autoRefreshIntervalMs : null
+  );
 
   const nowMs = lastRefreshedAt?.getTime() ?? 0;
 
@@ -305,6 +403,21 @@ export function UsagePage() {
         }}
       />
 
+      <RequestEventsDetailsCard
+        usage={filteredUsage}
+        loading={loading}
+        geminiKeys={config?.geminiApiKeys || []}
+        claudeConfigs={config?.claudeApiKeys || []}
+        codexConfigs={config?.codexApiKeys || []}
+        vertexConfigs={config?.vertexApiKeys || []}
+        openaiProviders={config?.openaiCompatibility || []}
+        autoRefreshEnabled={autoRefreshEnabled}
+        autoRefreshInterval={String(autoRefreshIntervalMs)}
+        autoRefreshIntervalOptions={autoRefreshIntervalOptions}
+        onAutoRefreshChange={setAutoRefreshEnabled}
+        onAutoRefreshIntervalChange={handleAutoRefreshIntervalChange}
+      />
+
       {/* Chart Line Selection */}
       <ChartLineSelector
         chartLines={chartLines}
@@ -364,16 +477,6 @@ export function UsagePage() {
         <ApiDetailsCard apiStats={apiStats} loading={loading} hasPrices={hasPrices} />
         <ModelStatsCard modelStats={modelStats} loading={loading} hasPrices={hasPrices} />
       </div>
-
-      <RequestEventsDetailsCard
-        usage={filteredUsage}
-        loading={loading}
-        geminiKeys={config?.geminiApiKeys || []}
-        claudeConfigs={config?.claudeApiKeys || []}
-        codexConfigs={config?.codexApiKeys || []}
-        vertexConfigs={config?.vertexApiKeys || []}
-        openaiProviders={config?.openaiCompatibility || []}
-      />
 
       {/* Credential Stats */}
       <CredentialStatsCard

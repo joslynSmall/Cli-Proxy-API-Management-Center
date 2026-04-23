@@ -891,6 +891,12 @@
   min-width: 180px;
 }
 
+.requestEventsToggleRow {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+}
+
 .requestEventsMeta {
   display: flex;
   align-items: center;
@@ -1044,9 +1050,18 @@
 }
 
 .chartLineHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chartLineActions {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .chartLineList {
@@ -1093,6 +1108,17 @@
   font-size: 12px;
   color: var(--text-tertiary);
   margin: 10px 0 0 0;
+}
+
+@include mobile {
+  .chartLineHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chartLineActions {
+    justify-content: space-between;
+  }
 }
 
 // Service Health Card

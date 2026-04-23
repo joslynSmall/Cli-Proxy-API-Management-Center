@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/icons';
 import { ConfigSection } from '@/components/config/ConfigSection';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import type { VisualCircuitBreakerValidationErrors } from '@/hooks/useVisualConfig';
 import type {
   PayloadFilterRule,
   PayloadParamValidationErrorCode,
@@ -53,6 +54,7 @@ type VisualSectionId =
   | 'system'
   | 'network'
   | 'quota'
+  | 'circuitBreaker'
   | 'streaming'
   | 'payload';
 
@@ -68,6 +70,8 @@ interface VisualConfigEditorProps {
   values: VisualConfigValues;
   validationErrors?: VisualConfigValidationErrors;
   hasPayloadValidationErrors?: boolean;
+  circuitBreakerValidationErrors?: VisualCircuitBreakerValidationErrors;
+  hasCircuitBreakerValidationErrors?: boolean;
   disabled?: boolean;
   onChange: (values: Partial<VisualConfigValues>) => void;
 }
@@ -175,6 +179,8 @@ export function VisualConfigEditor({
   values,
   validationErrors,
   hasPayloadValidationErrors = false,
+  circuitBreakerValidationErrors,
+  hasCircuitBreakerValidationErrors = false,
   disabled = false,
   onChange,
 }: VisualConfigEditorProps) {
@@ -221,6 +227,10 @@ export function VisualConfigEditor({
   const nonstreamKeepaliveError = getValidationMessage(
     t,
     validationErrors?.['streaming.nonstreamKeepaliveInterval']
+  );
+  const circuitBreakerAutoRemovalThresholdError = getValidationMessage(
+    t,
+    validationErrors?.circuitBreakerAutoRemovalThreshold
   );
 
   const handleApiKeysTextChange = useCallback(
@@ -306,6 +316,15 @@ export function VisualConfigEditor({
         errorCount: 0,
       },
       {
+        id: 'circuitBreaker',
+        title: t('config_management.visual.sections.circuit_breaker.title'),
+        description: t('config_management.visual.sections.circuit_breaker.description'),
+        icon: IconTimer,
+        errorCount:
+          countErrors(['circuitBreakerAutoRemovalThreshold']) +
+          (hasCircuitBreakerValidationErrors ? 1 : 0),
+      },
+      {
         id: 'streaming',
         title: t('config_management.visual.sections.streaming.title'),
         description: t('config_management.visual.sections.streaming.description'),
@@ -324,14 +343,39 @@ export function VisualConfigEditor({
         errorCount: hasPayloadValidationErrors ? 1 : 0,
       },
     ],
-    [countErrors, hasPayloadValidationErrors, t]
+    [countErrors, hasCircuitBreakerValidationErrors, hasPayloadValidationErrors, t]
   );
 
   const hasValidationIssues =
     sections.some((section) => section.errorCount > 0) || hasPayloadValidationErrors;
   const focusSections = useMemo(
-    () => sections.filter((section) => ['server', 'network', 'payload'].includes(section.id)),
+    () =>
+      sections.filter((section) =>
+        ['server', 'network', 'circuitBreaker', 'payload'].includes(section.id)
+      ),
     [sections]
+  );
+
+  const updateCodexOverride = useCallback(
+    (id: string, patch: Partial<VisualConfigValues['codexCircuitBreakerOverrides'][number]>) => {
+      onChange({
+        codexCircuitBreakerOverrides: values.codexCircuitBreakerOverrides.map((entry) =>
+          entry.id === id ? { ...entry, ...patch } : entry
+        ),
+      });
+    },
+    [onChange, values.codexCircuitBreakerOverrides]
+  );
+
+  const updateOpenAIOverride = useCallback(
+    (id: string, patch: Partial<VisualConfigValues['openaiCircuitBreakerOverrides'][number]>) => {
+      onChange({
+        openaiCircuitBreakerOverrides: values.openaiCircuitBreakerOverrides.map((entry) =>
+          entry.id === id ? { ...entry, ...patch } : entry
+        ),
+      });
+    },
+    [onChange, values.openaiCircuitBreakerOverrides]
   );
 
   useEffect(() => {
@@ -940,11 +984,159 @@ export function VisualConfigEditor({
           </ConfigSection>
 
           <ConfigSection
+            id="circuitBreaker"
+            ref={(node) => {
+              sectionRefs.current.circuitBreaker = node;
+            }}
+            indexLabel="08"
+            icon={<IconTimer size={16} />}
+            title={t('config_management.visual.sections.circuit_breaker.title')}
+            description={t('config_management.visual.sections.circuit_breaker.description')}
+          >
+            <SectionStack>
+              <SectionSubsection
+                title={t('config_management.visual.sections.circuit_breaker.auto_removal_title')}
+                description={t(
+                  'config_management.visual.sections.circuit_breaker.auto_removal_desc'
+                )}
+              >
+                <SectionStack>
+                  <ToggleRow
+                    title={t('config_management.visual.sections.circuit_breaker.auto_removal_enable')}
+                    description={t(
+                      'config_management.visual.sections.circuit_breaker.auto_removal_enable_desc'
+                    )}
+                    checked={values.circuitBreakerAutoRemovalEnabled}
+                    disabled={disabled}
+                    onChange={(circuitBreakerAutoRemovalEnabled) =>
+                      onChange({ circuitBreakerAutoRemovalEnabled })
+                    }
+                  />
+                  <Input
+                    label={t(
+                      'config_management.visual.sections.circuit_breaker.auto_remove_threshold'
+                    )}
+                    type="number"
+                    step={1}
+                    min={1}
+                    placeholder="3"
+                    value={values.circuitBreakerAutoRemovalThreshold}
+                    onChange={(e) =>
+                      onChange({ circuitBreakerAutoRemovalThreshold: e.target.value })
+                    }
+                    disabled={disabled}
+                    hint={t(
+                      'config_management.visual.sections.circuit_breaker.auto_remove_threshold_hint'
+                    )}
+                    error={circuitBreakerAutoRemovalThresholdError}
+                  />
+                </SectionStack>
+              </SectionSubsection>
+
+              <SectionSubsection
+                title={t('config_management.visual.sections.circuit_breaker.codex_title')}
+                description={t('config_management.visual.sections.circuit_breaker.codex_desc')}
+              >
+                {values.codexCircuitBreakerOverrides.length === 0 ? (
+                  <div className={styles.emptyState}>
+                    {t('config_management.visual.sections.circuit_breaker.codex_empty')}
+                  </div>
+                ) : (
+                  <div className={styles.circuitOverrideList}>
+                    {values.codexCircuitBreakerOverrides.map((entry) => {
+                      const entryErrors = circuitBreakerValidationErrors?.codex?.[entry.id];
+                      return (
+                        <div key={entry.id} className={styles.circuitOverrideRow}>
+                          <div className={styles.circuitOverrideLabel}>
+                            <code>{entry.label}</code>
+                          </div>
+                          <Input
+                            label={t('config_management.visual.sections.circuit_breaker.failure_threshold')}
+                            type="number"
+                            step={1}
+                            min={1}
+                            value={entry.failureThreshold}
+                            onChange={(e) =>
+                              updateCodexOverride(entry.id, { failureThreshold: e.target.value })
+                            }
+                            disabled={disabled}
+                            error={getValidationMessage(t, entryErrors?.failureThreshold)}
+                          />
+                          <Input
+                            label={t('config_management.visual.sections.circuit_breaker.recovery_timeout')}
+                            type="number"
+                            step={1}
+                            min={1}
+                            value={entry.recoveryTimeout}
+                            onChange={(e) =>
+                              updateCodexOverride(entry.id, { recoveryTimeout: e.target.value })
+                            }
+                            disabled={disabled}
+                            error={getValidationMessage(t, entryErrors?.recoveryTimeout)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </SectionSubsection>
+
+              <SectionSubsection
+                title={t('config_management.visual.sections.circuit_breaker.openai_title')}
+                description={t('config_management.visual.sections.circuit_breaker.openai_desc')}
+              >
+                {values.openaiCircuitBreakerOverrides.length === 0 ? (
+                  <div className={styles.emptyState}>
+                    {t('config_management.visual.sections.circuit_breaker.openai_empty')}
+                  </div>
+                ) : (
+                  <div className={styles.circuitOverrideList}>
+                    {values.openaiCircuitBreakerOverrides.map((entry) => {
+                      const entryErrors = circuitBreakerValidationErrors?.openai?.[entry.id];
+                      return (
+                        <div key={entry.id} className={styles.circuitOverrideRow}>
+                          <div className={styles.circuitOverrideLabel}>
+                            <code>{entry.label}</code>
+                          </div>
+                          <Input
+                            label={t('config_management.visual.sections.circuit_breaker.failure_threshold')}
+                            type="number"
+                            step={1}
+                            min={1}
+                            value={entry.failureThreshold}
+                            onChange={(e) =>
+                              updateOpenAIOverride(entry.id, { failureThreshold: e.target.value })
+                            }
+                            disabled={disabled}
+                            error={getValidationMessage(t, entryErrors?.failureThreshold)}
+                          />
+                          <Input
+                            label={t('config_management.visual.sections.circuit_breaker.recovery_timeout')}
+                            type="number"
+                            step={1}
+                            min={1}
+                            value={entry.recoveryTimeout}
+                            onChange={(e) =>
+                              updateOpenAIOverride(entry.id, { recoveryTimeout: e.target.value })
+                            }
+                            disabled={disabled}
+                            error={getValidationMessage(t, entryErrors?.recoveryTimeout)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </SectionSubsection>
+            </SectionStack>
+          </ConfigSection>
+
+          <ConfigSection
             id="streaming"
             ref={(node) => {
               sectionRefs.current.streaming = node;
             }}
-            indexLabel="08"
+            indexLabel="09"
             icon={<IconSatellite size={16} />}
             title={t('config_management.visual.sections.streaming.title')}
             description={t('config_management.visual.sections.streaming.description')}
@@ -1045,7 +1237,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.payload = node;
             }}
-            indexLabel="09"
+            indexLabel="10"
             icon={<IconCode size={16} />}
             title={t('config_management.visual.sections.payload.title')}
             description={t('config_management.visual.sections.payload.description')}

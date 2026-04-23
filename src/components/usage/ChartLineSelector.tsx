@@ -56,17 +56,19 @@ export function ChartLineSelector({
       title={t('usage_stats.chart_line_actions_label')}
       extra={
         <div className={styles.chartLineHeader}>
-          <span className={styles.chartLineCount}>
-            {chartLines.length}/{maxLines}
-          </span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleAdd}
-            disabled={chartLines.length >= maxLines}
-          >
-            {t('usage_stats.chart_line_add')}
-          </Button>
+          <div className={styles.chartLineActions}>
+            <span className={styles.chartLineCount}>
+              {chartLines.length}/{maxLines}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleAdd}
+              disabled={chartLines.length >= maxLines}
+            >
+              {t('usage_stats.chart_line_add')}
+            </Button>
+          </div>
         </div>
       }
     >

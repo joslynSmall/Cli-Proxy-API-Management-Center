@@ -52,6 +52,8 @@ export function ConfigPage() {
     visualParseError,
     visualValidationErrors,
     visualHasPayloadValidationErrors,
+    visualCircuitBreakerValidationErrors,
+    visualHasCircuitBreakerValidationErrors,
     loadVisualValuesFromYaml,
     applyVisualChangesToYaml,
     setVisualValues,
@@ -88,7 +90,9 @@ export function ConfigPage() {
   const hasVisualModeError = !!visualParseError;
   const hasVisualValidationErrors =
     activeTab === 'visual' &&
-    (Object.values(visualValidationErrors).some(Boolean) || visualHasPayloadValidationErrors);
+    (Object.values(visualValidationErrors).some(Boolean) ||
+      visualHasPayloadValidationErrors ||
+      visualHasCircuitBreakerValidationErrors);
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
@@ -562,6 +566,8 @@ export function ConfigPage() {
               values={visualValues}
               validationErrors={visualValidationErrors}
               hasPayloadValidationErrors={visualHasPayloadValidationErrors}
+              circuitBreakerValidationErrors={visualCircuitBreakerValidationErrors}
+              hasCircuitBreakerValidationErrors={visualHasCircuitBreakerValidationErrors}
               disabled={disableControls || loading}
               onChange={setVisualValues}
             />

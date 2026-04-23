@@ -24,6 +24,8 @@ import layoutStyles from './AiProvidersEditLayout.module.scss';
 import styles from './AiProvidersPage.module.scss';
 
 type LocationState = { fromAiProviders?: boolean } | null;
+const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
+const DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT = 1800;
 
 const buildEmptyForm = (): ProviderFormState => ({
   apiKey: '',
@@ -37,6 +39,8 @@ const buildEmptyForm = (): ProviderFormState => ({
   excludedModels: [],
   modelEntries: [{ name: '', alias: '' }],
   excludedText: '',
+  circuitBreakerFailureThreshold: DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+  circuitBreakerRecoveryTimeout: DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
 });
 
 const parseIndexParam = (value: string | undefined) => {
@@ -77,6 +81,14 @@ const buildCodexSignature = (form: ProviderFormState) =>
     headers: normalizeHeaderEntries(form.headers),
     models: normalizeModelEntries(form.modelEntries),
     excludedModels: parseExcludedModels(form.excludedText ?? ''),
+    circuitBreakerFailureThreshold:
+      form.circuitBreakerFailureThreshold !== undefined && Number.isFinite(form.circuitBreakerFailureThreshold)
+        ? form.circuitBreakerFailureThreshold
+        : null,
+    circuitBreakerRecoveryTimeout:
+      form.circuitBreakerRecoveryTimeout !== undefined && Number.isFinite(form.circuitBreakerRecoveryTimeout)
+        ? form.circuitBreakerRecoveryTimeout
+        : null,
   });
 
 export function AiProvidersCodexEditPage() {
@@ -184,6 +196,10 @@ export function AiProvidersCodexEditPage() {
         headers: headersToEntries(initialData.headers),
         modelEntries: modelsToEntries(initialData.models),
         excludedText: excludedModelsToText(initialData.excludedModels),
+        circuitBreakerFailureThreshold:
+          initialData.circuitBreakerFailureThreshold ?? DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        circuitBreakerRecoveryTimeout:
+          initialData.circuitBreakerRecoveryTimeout ?? DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
       };
       setForm(nextForm);
       setBaselineSignature(buildCodexSignature(nextForm));
@@ -211,7 +227,26 @@ export function AiProvidersCodexEditPage() {
     },
   });
 
-  const canSave = !disableControls && !saving && !loading && !invalidIndexParam && !invalidIndex;
+  const circuitBreakerFailureError =
+    form.circuitBreakerFailureThreshold === undefined
+      ? ''
+      : Number.isInteger(form.circuitBreakerFailureThreshold) && form.circuitBreakerFailureThreshold > 0
+        ? ''
+        : t('config_management.visual.validation.positive_integer', {
+            defaultValue: '请输入正整数',
+          });
+  const circuitBreakerRecoveryError =
+    form.circuitBreakerRecoveryTimeout === undefined
+      ? ''
+      : Number.isInteger(form.circuitBreakerRecoveryTimeout) && form.circuitBreakerRecoveryTimeout > 0
+        ? ''
+        : t('config_management.visual.validation.positive_integer', {
+            defaultValue: '请输入正整数',
+          });
+  const hasCircuitBreakerErrors = Boolean(circuitBreakerFailureError || circuitBreakerRecoveryError);
+
+  const canSave =
+    !disableControls && !saving && !loading && !invalidIndexParam && !invalidIndex && !hasCircuitBreakerErrors;
 
   const discoveredModelsFiltered = useMemo(() => {
     const filter = modelDiscoverySearch.trim().toLowerCase();
@@ -399,6 +434,10 @@ export function AiProvidersCodexEditPage() {
       showNotification(t('notification.codex_base_url_required'), 'error');
       return;
     }
+    if (hasCircuitBreakerErrors) {
+      showNotification(t('config_management.visual.validation.positive_integer'), 'error');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -413,6 +452,20 @@ export function AiProvidersCodexEditPage() {
         headers: buildHeaderObject(form.headers),
         models: entriesToModels(form.modelEntries),
         excludedModels: parseExcludedModels(form.excludedText),
+        circuitBreakerFailureThreshold:
+          form.circuitBreakerFailureThreshold !== undefined &&
+          Number.isFinite(form.circuitBreakerFailureThreshold) &&
+          Number.isInteger(form.circuitBreakerFailureThreshold) &&
+          form.circuitBreakerFailureThreshold > 0
+            ? Math.trunc(form.circuitBreakerFailureThreshold)
+            : DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        circuitBreakerRecoveryTimeout:
+          form.circuitBreakerRecoveryTimeout !== undefined &&
+          Number.isFinite(form.circuitBreakerRecoveryTimeout) &&
+          Number.isInteger(form.circuitBreakerRecoveryTimeout) &&
+          form.circuitBreakerRecoveryTimeout > 0
+            ? Math.trunc(form.circuitBreakerRecoveryTimeout)
+            : DEFAULT_CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
       };
 
       const nextList =
@@ -447,6 +500,7 @@ export function AiProvidersCodexEditPage() {
     editIndex,
     form,
     handleBack,
+    hasCircuitBreakerErrors,
     showNotification,
     t,
     updateConfigValue,
@@ -611,6 +665,49 @@ export function AiProvidersCodexEditPage() {
                 removeButtonAriaLabel={t('common.delete')}
               />
             </div>
+
+            <Input
+              label={t('ai_providers.circuit_breaker_failure_threshold_label')}
+              hint={t('ai_providers.circuit_breaker_failure_threshold_hint')}
+              type="number"
+              step={1}
+              min={1}
+              value={form.circuitBreakerFailureThreshold ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const parsed = raw.trim() === '' ? undefined : Number(raw);
+                setForm((prev) => ({
+                  ...prev,
+                  circuitBreakerFailureThreshold: Number.isFinite(parsed as number)
+                    ? (parsed as number)
+                    : undefined,
+                }));
+              }}
+              disabled={disableControls || saving}
+              error={circuitBreakerFailureError || undefined}
+            />
+
+            <Input
+              label={t('ai_providers.circuit_breaker_recovery_timeout_label')}
+              hint={t('ai_providers.circuit_breaker_recovery_timeout_hint')}
+              type="number"
+              step={1}
+              min={1}
+              value={form.circuitBreakerRecoveryTimeout ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const parsed = raw.trim() === '' ? undefined : Number(raw);
+                setForm((prev) => ({
+                  ...prev,
+                  circuitBreakerRecoveryTimeout: Number.isFinite(parsed as number)
+                    ? (parsed as number)
+                    : undefined,
+                }));
+              }}
+              disabled={disableControls || saving}
+              error={circuitBreakerRecoveryError || undefined}
+            />
+
             <div className="form-group">
               <label>{t('ai_providers.excluded_models_label')}</label>
               <textarea

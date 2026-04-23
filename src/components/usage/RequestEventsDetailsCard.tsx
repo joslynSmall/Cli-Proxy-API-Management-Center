@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
-import { Select } from '@/components/ui/Select';
+import { Select, type SelectOption } from '@/components/ui/Select';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { authFilesApi } from '@/services/api/authFiles';
 import { logsApi } from '@/services/api/logs';
 import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
@@ -66,6 +67,11 @@ export interface RequestEventsDetailsCardProps {
   codexConfigs: ProviderKeyConfig[];
   vertexConfigs: ProviderKeyConfig[];
   openaiProviders: OpenAIProviderConfig[];
+  autoRefreshEnabled: boolean;
+  autoRefreshInterval: string;
+  autoRefreshIntervalOptions: ReadonlyArray<SelectOption>;
+  onAutoRefreshChange: (enabled: boolean) => void;
+  onAutoRefreshIntervalChange: (intervalMs: number) => void;
 }
 
 const toNumber = (value: unknown): number => {
@@ -88,7 +94,12 @@ export function RequestEventsDetailsCard({
   claudeConfigs,
   codexConfigs,
   vertexConfigs,
-  openaiProviders
+  openaiProviders,
+  autoRefreshEnabled,
+  autoRefreshInterval,
+  autoRefreshIntervalOptions,
+  onAutoRefreshChange,
+  onAutoRefreshIntervalChange
 }: RequestEventsDetailsCardProps) {
   const { t, i18n } = useTranslation();
 
@@ -127,17 +138,9 @@ export function RequestEventsDetailsCard({
   }, []);
 
   useEffect(() => {
-    if (!activeRequestLogId) {
-      setRequestLogContent('');
-      setRequestLogError('');
-      setRequestLogLoading(false);
-      return;
-    }
+    if (!activeRequestLogId) return;
 
     let cancelled = false;
-    setRequestLogLoading(true);
-    setRequestLogContent('');
-    setRequestLogError('');
 
     logsApi
       .fetchRequestLogTextById(activeRequestLogId)
@@ -422,7 +425,17 @@ export function RequestEventsDetailsCard({
   };
 
   const closeRequestLogModal = () => {
+    setRequestLogContent('');
+    setRequestLogError('');
+    setRequestLogLoading(false);
     setActiveRequestLogId(null);
+  };
+
+  const openRequestLogModal = (requestLogId: string) => {
+    setRequestLogContent('');
+    setRequestLogError('');
+    setRequestLogLoading(true);
+    setActiveRequestLogId(requestLogId);
   };
 
   return (
@@ -459,45 +472,68 @@ export function RequestEventsDetailsCard({
         }
       >
         <div className={styles.requestEventsToolbar}>
-        <div className={styles.requestEventsFilterItem}>
-          <span className={styles.requestEventsFilterLabel}>
-            {t('usage_stats.request_events_filter_model')}
-          </span>
-          <Select
-            value={effectiveModelFilter}
-            options={modelOptions}
-            onChange={setModelFilter}
-            className={styles.requestEventsSelect}
-            ariaLabel={t('usage_stats.request_events_filter_model')}
-            fullWidth={false}
-          />
-        </div>
-        <div className={styles.requestEventsFilterItem}>
-          <span className={styles.requestEventsFilterLabel}>
-            {t('usage_stats.request_events_filter_source')}
-          </span>
-          <Select
-            value={effectiveSourceFilter}
-            options={sourceOptions}
-            onChange={setSourceFilter}
-            className={styles.requestEventsSelect}
-            ariaLabel={t('usage_stats.request_events_filter_source')}
-            fullWidth={false}
-          />
-        </div>
-        <div className={styles.requestEventsFilterItem}>
-          <span className={styles.requestEventsFilterLabel}>
-            {t('usage_stats.request_events_filter_auth_index')}
-          </span>
-          <Select
-            value={effectiveAuthIndexFilter}
-            options={authIndexOptions}
-            onChange={setAuthIndexFilter}
-            className={styles.requestEventsSelect}
-            ariaLabel={t('usage_stats.request_events_filter_auth_index')}
-            fullWidth={false}
-          />
-        </div>
+          <div className={styles.requestEventsFilterItem}>
+            <span className={styles.requestEventsFilterLabel}>
+              {t('usage_stats.request_events_filter_model')}
+            </span>
+            <Select
+              value={effectiveModelFilter}
+              options={modelOptions}
+              onChange={setModelFilter}
+              className={styles.requestEventsSelect}
+              ariaLabel={t('usage_stats.request_events_filter_model')}
+              fullWidth={false}
+            />
+          </div>
+          <div className={styles.requestEventsFilterItem}>
+            <span className={styles.requestEventsFilterLabel}>
+              {t('usage_stats.request_events_filter_source')}
+            </span>
+            <Select
+              value={effectiveSourceFilter}
+              options={sourceOptions}
+              onChange={setSourceFilter}
+              className={styles.requestEventsSelect}
+              ariaLabel={t('usage_stats.request_events_filter_source')}
+              fullWidth={false}
+            />
+          </div>
+          <div className={styles.requestEventsFilterItem}>
+            <span className={styles.requestEventsFilterLabel}>
+              {t('usage_stats.request_events_filter_auth_index')}
+            </span>
+            <Select
+              value={effectiveAuthIndexFilter}
+              options={authIndexOptions}
+              onChange={setAuthIndexFilter}
+              className={styles.requestEventsSelect}
+              ariaLabel={t('usage_stats.request_events_filter_auth_index')}
+              fullWidth={false}
+            />
+          </div>
+          <div className={styles.requestEventsFilterItem}>
+            <span className={styles.requestEventsFilterLabel}>{t('usage_stats.auto_refresh')}</span>
+            <div className={styles.requestEventsToggleRow}>
+              <ToggleSwitch
+                checked={autoRefreshEnabled}
+                onChange={onAutoRefreshChange}
+                ariaLabel={t('usage_stats.auto_refresh')}
+              />
+            </div>
+          </div>
+          <div className={styles.requestEventsFilterItem}>
+            <span className={styles.requestEventsFilterLabel}>
+              {t('usage_stats.auto_refresh_interval')}
+            </span>
+            <Select
+              value={autoRefreshInterval}
+              options={autoRefreshIntervalOptions}
+              onChange={(value) => onAutoRefreshIntervalChange(Number(value))}
+              className={styles.requestEventsSelect}
+              ariaLabel={t('usage_stats.auto_refresh_interval')}
+              fullWidth={false}
+            />
+          </div>
         </div>
 
         {loading && rows.length === 0 ? (
@@ -601,7 +637,7 @@ export function RequestEventsDetailsCard({
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => setActiveRequestLogId(logTarget)}
+                              onClick={() => openRequestLogModal(logTarget)}
                             >
                               {t('usage_stats.request_events_view_log')}
                             </Button>
