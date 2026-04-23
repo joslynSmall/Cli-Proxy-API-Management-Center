@@ -10,11 +10,12 @@ export type VisualConfigFieldPath =
   | 'requestRetry'
   | 'maxRetryCredentials'
   | 'maxRetryInterval'
+  | 'circuitBreakerAutoRemovalThreshold'
   | 'streaming.keepaliveSeconds'
   | 'streaming.bootstrapRetries'
   | 'streaming.nonstreamKeepaliveInterval';
 
-export type VisualConfigValidationErrorCode = 'port_range' | 'non_negative_integer';
+export type VisualConfigValidationErrorCode = 'port_range' | 'non_negative_integer' | 'positive_integer';
 
 export type VisualConfigValidationErrors = Partial<
   Record<VisualConfigFieldPath, VisualConfigValidationErrorCode>
@@ -51,6 +52,14 @@ export interface StreamingConfig {
   nonstreamKeepaliveInterval: string;
 }
 
+export type CircuitBreakerProviderOverride = {
+  id: string;
+  index: number;
+  label: string;
+  failureThreshold: string;
+  recoveryTimeout: string;
+};
+
 export type VisualConfigValues = {
   host: string;
   port: string;
@@ -82,6 +91,10 @@ export type VisualConfigValues = {
   payloadOverrideRules: PayloadRule[];
   payloadOverrideRawRules: PayloadRule[];
   payloadFilterRules: PayloadFilterRule[];
+  circuitBreakerAutoRemovalEnabled: boolean;
+  circuitBreakerAutoRemovalThreshold: string;
+  codexCircuitBreakerOverrides: CircuitBreakerProviderOverride[];
+  openaiCircuitBreakerOverrides: CircuitBreakerProviderOverride[];
   streaming: StreamingConfig;
 };
 
@@ -121,6 +134,10 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
   payloadOverrideRules: [],
   payloadOverrideRawRules: [],
   payloadFilterRules: [],
+  circuitBreakerAutoRemovalEnabled: true,
+  circuitBreakerAutoRemovalThreshold: '',
+  codexCircuitBreakerOverrides: [],
+  openaiCircuitBreakerOverrides: [],
   streaming: {
     keepaliveSeconds: '',
     bootstrapRetries: '',

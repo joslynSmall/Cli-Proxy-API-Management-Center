@@ -147,6 +147,36 @@ const normalizeProviderKeyConfig = (item: unknown): ProviderKeyConfig | null => 
   );
   if (excludedModels.length) config.excludedModels = excludedModels;
 
+  const circuitBreakerFailureThreshold =
+    record?.['circuit-breaker-failure-threshold'] ??
+    record?.circuitBreakerFailureThreshold ??
+    record?.circuit_breaker_failure_threshold;
+  if (
+    circuitBreakerFailureThreshold !== undefined &&
+    circuitBreakerFailureThreshold !== null &&
+    String(circuitBreakerFailureThreshold).trim() !== ''
+  ) {
+    const parsed = Number(circuitBreakerFailureThreshold);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      config.circuitBreakerFailureThreshold = Math.trunc(parsed);
+    }
+  }
+
+  const circuitBreakerRecoveryTimeout =
+    record?.['circuit-breaker-recovery-timeout'] ??
+    record?.circuitBreakerRecoveryTimeout ??
+    record?.circuit_breaker_recovery_timeout;
+  if (
+    circuitBreakerRecoveryTimeout !== undefined &&
+    circuitBreakerRecoveryTimeout !== null &&
+    String(circuitBreakerRecoveryTimeout).trim() !== ''
+  ) {
+    const parsed = Number(circuitBreakerRecoveryTimeout);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      config.circuitBreakerRecoveryTimeout = Math.trunc(parsed);
+    }
+  }
+
   const cloakRaw = record?.cloak;
   if (isRecord(cloakRaw)) {
     const cloak: CloakConfig = {};
@@ -228,6 +258,14 @@ const normalizeOpenAIProvider = (provider: unknown): OpenAIProviderConfig | null
   const models = normalizeModelAliases(provider.models);
   const priority = provider.priority ?? provider['priority'];
   const testModel = provider['test-model'] ?? provider.testModel;
+  const circuitBreakerFailureThreshold =
+    provider['circuit-breaker-failure-threshold'] ??
+    provider.circuitBreakerFailureThreshold ??
+    provider.circuit_breaker_failure_threshold;
+  const circuitBreakerRecoveryTimeout =
+    provider['circuit-breaker-recovery-timeout'] ??
+    provider.circuitBreakerRecoveryTimeout ??
+    provider.circuit_breaker_recovery_timeout;
 
   const result: OpenAIProviderConfig = {
     name: String(name),
@@ -241,6 +279,27 @@ const normalizeOpenAIProvider = (provider: unknown): OpenAIProviderConfig | null
   if (models.length) result.models = models;
   if (priority !== undefined) result.priority = Number(priority);
   if (testModel) result.testModel = String(testModel);
+
+  if (
+    circuitBreakerFailureThreshold !== undefined &&
+    circuitBreakerFailureThreshold !== null &&
+    String(circuitBreakerFailureThreshold).trim() !== ''
+  ) {
+    const parsed = Number(circuitBreakerFailureThreshold);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      result.circuitBreakerFailureThreshold = Math.trunc(parsed);
+    }
+  }
+  if (
+    circuitBreakerRecoveryTimeout !== undefined &&
+    circuitBreakerRecoveryTimeout !== null &&
+    String(circuitBreakerRecoveryTimeout).trim() !== ''
+  ) {
+    const parsed = Number(circuitBreakerRecoveryTimeout);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      result.circuitBreakerRecoveryTimeout = Math.trunc(parsed);
+    }
+  }
   return result;
 };
 

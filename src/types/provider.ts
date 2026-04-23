@@ -43,6 +43,8 @@ export interface ProviderKeyConfig {
   headers?: Record<string, string>;
   models?: ModelAlias[];
   excludedModels?: string[];
+  circuitBreakerFailureThreshold?: number;
+  circuitBreakerRecoveryTimeout?: number;
   cloak?: CloakConfig;
 }
 
@@ -55,5 +57,7 @@ export interface OpenAIProviderConfig {
   models?: ModelAlias[];
   priority?: number;
   testModel?: string;
+  circuitBreakerFailureThreshold?: number;
+  circuitBreakerRecoveryTimeout?: number;
   [key: string]: unknown;
 }

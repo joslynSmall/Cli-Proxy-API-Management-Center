@@ -43,6 +43,12 @@ export default defineConfig({
       removeViteModuleLoader: true
     })
   ],
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    globals: true,
+    css: true,
+  },
   define: {
     __APP_VERSION__: JSON.stringify(getVersion())
   },

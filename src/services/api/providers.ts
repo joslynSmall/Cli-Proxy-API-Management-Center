@@ -19,12 +19,30 @@ import type {
 export interface OpenAICompatSyncRequest {
   name?: string;
   all?: boolean;
+  preview?: boolean;
+  skip_alias_lookup?: boolean;
+  selected_models?: Array<{ name: string; alias: string }>;
   timeout_seconds?: number;
+}
+
+export interface OpenAICompatPreviewResponse {
+  status?: string;
+  provider?: string;
+  models?: string[];
+  fetched_count?: number;
+  errors?: string[];
+}
+
+export interface OpenAICompatAliasLookupResponse {
+  status?: string;
+  matched?: Array<{ name: string; alias: string }>;
+  unmatched?: string[];
 }
 
 export interface OpenAICompatSyncResponse {
   status?: string;
   providers?: string[];
+  provider?: string;
   updated_count?: number;
   fetched_count?: number;
   unmatched_models?: Record<string, string[]>;
@@ -84,6 +102,20 @@ const serializeProviderKey = (config: ProviderKeyConfig) => {
   if (models && models.length) payload.models = models;
   if (config.excludedModels && config.excludedModels.length) {
     payload['excluded-models'] = config.excludedModels;
+  }
+  if (
+    config.circuitBreakerFailureThreshold !== undefined &&
+    Number.isFinite(config.circuitBreakerFailureThreshold) &&
+    config.circuitBreakerFailureThreshold > 0
+  ) {
+    payload['circuit-breaker-failure-threshold'] = Math.trunc(config.circuitBreakerFailureThreshold);
+  }
+  if (
+    config.circuitBreakerRecoveryTimeout !== undefined &&
+    Number.isFinite(config.circuitBreakerRecoveryTimeout) &&
+    config.circuitBreakerRecoveryTimeout > 0
+  ) {
+    payload['circuit-breaker-recovery-timeout'] = Math.trunc(config.circuitBreakerRecoveryTimeout);
   }
   if (config.cloak) {
     const cloakPayload: Record<string, unknown> = {};
@@ -159,6 +191,20 @@ const serializeOpenAIProvider = (provider: OpenAIProviderConfig) => {
   if (models && models.length) payload.models = models;
   if (provider.priority !== undefined) payload.priority = provider.priority;
   if (provider.testModel) payload['test-model'] = provider.testModel;
+  if (
+    provider.circuitBreakerFailureThreshold !== undefined &&
+    Number.isFinite(provider.circuitBreakerFailureThreshold) &&
+    provider.circuitBreakerFailureThreshold > 0
+  ) {
+    payload['circuit-breaker-failure-threshold'] = Math.trunc(provider.circuitBreakerFailureThreshold);
+  }
+  if (
+    provider.circuitBreakerRecoveryTimeout !== undefined &&
+    Number.isFinite(provider.circuitBreakerRecoveryTimeout) &&
+    provider.circuitBreakerRecoveryTimeout > 0
+  ) {
+    payload['circuit-breaker-recovery-timeout'] = Math.trunc(provider.circuitBreakerRecoveryTimeout);
+  }
   return payload;
 };
 
@@ -228,6 +274,18 @@ export const providersApi = {
     const list = extractArrayPayload(data, 'openai-compatibility');
     return list.map((item) => normalizeOpenAIProvider(item)).filter(Boolean) as OpenAIProviderConfig[];
   },
+
+  previewOpenAICompatModels: (name: string) =>
+    apiClient.post<OpenAICompatPreviewResponse>('/openai-compatibility/sync-models', {
+      name,
+      preview: true,
+      skip_alias_lookup: true,
+    }),
+
+  lookupOpenAICompatAliases: (models: string[]) =>
+    apiClient.post<OpenAICompatAliasLookupResponse>('/openai-compatibility/lookup-aliases', {
+      models,
+    }),
 
   syncOpenAICompatModels: (payload: OpenAICompatSyncRequest) =>
     apiClient.post<OpenAICompatSyncResponse>('/openai-compatibility/sync-models', payload),

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
-import { isMap, parse as parseYaml, parseDocument } from 'yaml';
+import { isMap, isSeq, parse as parseYaml, parseDocument } from 'yaml';
 import type {
+  CircuitBreakerProviderOverride,
   PayloadFilterRule,
   PayloadParamEntry,
   PayloadParamValueType,
@@ -10,6 +11,7 @@ import type {
   PayloadParamValidationErrorCode,
 } from '@/types/visualConfig';
 import { DEFAULT_VISUAL_VALUES } from '@/types/visualConfig';
+import { maskApiKey } from '@/utils/format';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -65,7 +67,7 @@ function resolveApiKeysText(parsed: Record<string, unknown>): string {
 }
 
 type YamlDocument = ReturnType<typeof parseDocument>;
-type YamlPath = string[];
+type YamlPath = Array<string | number>;
 
 function docHas(doc: YamlDocument, path: YamlPath): boolean {
   return doc.hasIn(path);
@@ -125,11 +127,38 @@ function setIntFromStringInDoc(doc: YamlDocument, path: YamlPath, value: unknown
   }
 }
 
+function setPositiveIntFromStringInDoc(doc: YamlDocument, path: YamlPath, value: unknown): void {
+  const safe = typeof value === 'string' ? value : '';
+  const trimmed = safe.trim();
+  if (trimmed === '') {
+    if (docHas(doc, path)) doc.deleteIn(path);
+    return;
+  }
+
+  if (!/^\d+$/.test(trimmed)) {
+    return;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return;
+  const truncated = Math.trunc(parsed);
+  if (truncated <= 0) return;
+  doc.setIn(path, truncated);
+}
+
 function getNonNegativeIntegerError(value: string): 'non_negative_integer' | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (!/^-?\d+$/.test(trimmed)) return 'non_negative_integer';
   return Number(trimmed) >= 0 ? undefined : 'non_negative_integer';
+}
+
+function getPositiveIntegerError(value: string): 'positive_integer' | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!/^\d+$/.test(trimmed)) return 'positive_integer';
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? undefined : 'positive_integer';
 }
 
 function getPortError(value: string): 'port_range' | undefined {
@@ -138,6 +167,53 @@ function getPortError(value: string): 'port_range' | undefined {
   if (!/^\d+$/.test(trimmed)) return 'port_range';
   const parsed = Number(trimmed);
   return parsed >= 1 && parsed <= 65535 ? undefined : 'port_range';
+}
+
+function normalizeBooleanDefaultTrue(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(trimmed)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(trimmed)) return false;
+  }
+  return Boolean(value);
+}
+
+function toPositiveIntegerString(raw: unknown): string {
+  if (raw === undefined || raw === null) return '';
+  const parsed = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(parsed)) return '';
+  const truncated = Math.trunc(parsed);
+  return truncated > 0 ? String(truncated) : '';
+}
+
+type CircuitBreakerOverrideFieldErrors = {
+  failureThreshold?: 'positive_integer';
+  recoveryTimeout?: 'positive_integer';
+};
+
+export type VisualCircuitBreakerValidationErrors = {
+  autoRemovalThreshold?: 'positive_integer';
+  codex: Record<string, CircuitBreakerOverrideFieldErrors>;
+  openai: Record<string, CircuitBreakerOverrideFieldErrors>;
+};
+
+function validateCircuitBreakerOverrides(
+  overrides: CircuitBreakerProviderOverride[]
+): Record<string, CircuitBreakerOverrideFieldErrors> {
+  const errors: Record<string, CircuitBreakerOverrideFieldErrors> = {};
+  overrides.forEach((entry) => {
+    const failureError = getPositiveIntegerError(entry.failureThreshold);
+    const recoveryError = getPositiveIntegerError(entry.recoveryTimeout);
+    if (!failureError && !recoveryError) return;
+    errors[entry.id] = {
+      failureThreshold: failureError,
+      recoveryTimeout: recoveryError,
+    };
+  });
+  return errors;
 }
 
 export function getVisualConfigValidationErrors(
@@ -149,6 +225,7 @@ export function getVisualConfigValidationErrors(
     requestRetry: getNonNegativeIntegerError(values.requestRetry),
     maxRetryCredentials: getNonNegativeIntegerError(values.maxRetryCredentials),
     maxRetryInterval: getNonNegativeIntegerError(values.maxRetryInterval),
+    circuitBreakerAutoRemovalThreshold: getPositiveIntegerError(values.circuitBreakerAutoRemovalThreshold),
     'streaming.keepaliveSeconds': getNonNegativeIntegerError(values.streaming.keepaliveSeconds),
     'streaming.bootstrapRetries': getNonNegativeIntegerError(values.streaming.bootstrapRetries),
     'streaming.nonstreamKeepaliveInterval': getNonNegativeIntegerError(
@@ -347,6 +424,62 @@ function parseRawPayloadRules(rules: unknown): PayloadRule[] {
   });
 }
 
+function parseCodexCircuitBreakerOverrides(raw: unknown): CircuitBreakerProviderOverride[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.map((entry, index) => {
+    const record = asRecord(entry) ?? {};
+    const apiKey = extractApiKeyValue(record) ?? '';
+    const label = apiKey ? `#${index + 1} · ${maskApiKey(apiKey)}` : `#${index + 1}`;
+    const failureThreshold = toPositiveIntegerString(
+      record['circuit-breaker-failure-threshold'] ??
+        record.circuitBreakerFailureThreshold ??
+        record.circuit_breaker_failure_threshold
+    );
+    const recoveryTimeout = toPositiveIntegerString(
+      record['circuit-breaker-recovery-timeout'] ??
+        record.circuitBreakerRecoveryTimeout ??
+        record.circuit_breaker_recovery_timeout
+    );
+
+    return {
+      id: `codex-cb-${index}`,
+      index,
+      label,
+      failureThreshold,
+      recoveryTimeout,
+    };
+  });
+}
+
+function parseOpenAICircuitBreakerOverrides(raw: unknown): CircuitBreakerProviderOverride[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.map((entry, index) => {
+    const record = asRecord(entry) ?? {};
+    const name = typeof record.name === 'string' ? record.name.trim() : '';
+    const label = name ? name : `#${index + 1}`;
+    const failureThreshold = toPositiveIntegerString(
+      record['circuit-breaker-failure-threshold'] ??
+        record.circuitBreakerFailureThreshold ??
+        record.circuit_breaker_failure_threshold
+    );
+    const recoveryTimeout = toPositiveIntegerString(
+      record['circuit-breaker-recovery-timeout'] ??
+        record.circuitBreakerRecoveryTimeout ??
+        record.circuit_breaker_recovery_timeout
+    );
+
+    return {
+      id: `openai-cb-${index}`,
+      index,
+      label,
+      failureThreshold,
+      recoveryTimeout,
+    };
+  });
+}
+
 function serializePayloadRulesForYaml(rules: PayloadRule[]): Array<Record<string, unknown>> {
   return rules
     .map((rule) => {
@@ -453,6 +586,20 @@ export function useVisualConfig() {
     ]
   );
 
+  const visualCircuitBreakerValidationErrors = useMemo<VisualCircuitBreakerValidationErrors>(() => {
+    return {
+      codex: validateCircuitBreakerOverrides(visualValues.codexCircuitBreakerOverrides),
+      openai: validateCircuitBreakerOverrides(visualValues.openaiCircuitBreakerOverrides),
+    };
+  }, [visualValues.codexCircuitBreakerOverrides, visualValues.openaiCircuitBreakerOverrides]);
+
+  const visualHasCircuitBreakerValidationErrors = useMemo(() => {
+    return (
+      Object.keys(visualCircuitBreakerValidationErrors.codex).length > 0 ||
+      Object.keys(visualCircuitBreakerValidationErrors.openai).length > 0
+    );
+  }, [visualCircuitBreakerValidationErrors]);
+
   const visualDirty = useMemo(() => {
     return JSON.stringify(visualValues) !== JSON.stringify(baselineValues);
   }, [baselineValues, visualValues]);
@@ -472,6 +619,13 @@ export function useVisualConfig() {
       const routing = asRecord(parsed.routing);
       const payload = asRecord(parsed.payload);
       const streaming = asRecord(parsed.streaming);
+      const circuitBreakerAutoRemoval = asRecord(
+        parsed['circuit-breaker-auto-removal'] ?? parsed.circuitBreakerAutoRemoval
+      );
+
+      const codexKeysRaw = parsed['codex-api-key'] ?? parsed.codexApiKey ?? parsed.codexApiKeys;
+      const openaiProvidersRaw =
+        parsed['openai-compatibility'] ?? parsed.openaiCompatibility ?? parsed.openAICompatibility;
 
       const newValues: VisualConfigValues = {
         host: typeof parsed.host === 'string' ? parsed.host : '',
@@ -521,6 +675,17 @@ export function useVisualConfig() {
         payloadOverrideRules: parsePayloadRules(payload?.override),
         payloadOverrideRawRules: parseRawPayloadRules(payload?.['override-raw']),
         payloadFilterRules: parsePayloadFilterRules(payload?.filter),
+
+        circuitBreakerAutoRemovalEnabled: normalizeBooleanDefaultTrue(
+          circuitBreakerAutoRemoval?.enabled ?? circuitBreakerAutoRemoval?.Enabled
+        ),
+        circuitBreakerAutoRemovalThreshold: toPositiveIntegerString(
+          circuitBreakerAutoRemoval?.['auto-remove-threshold'] ??
+            circuitBreakerAutoRemoval?.autoRemoveThreshold ??
+            circuitBreakerAutoRemoval?.auto_remove_threshold
+        ),
+        codexCircuitBreakerOverrides: parseCodexCircuitBreakerOverrides(codexKeysRaw),
+        openaiCircuitBreakerOverrides: parseOpenAICircuitBreakerOverrides(openaiProvidersRaw),
 
         streaming: {
           keepaliveSeconds: String(streaming?.['keepalive-seconds'] ?? ''),
@@ -710,6 +875,66 @@ export function useVisualConfig() {
           deleteIfMapEmpty(doc, ['payload']);
         }
 
+        const circuitBreakerAutoRemovalDefined =
+          docHas(doc, ['circuit-breaker-auto-removal']) ||
+          values.circuitBreakerAutoRemovalEnabled === false ||
+          values.circuitBreakerAutoRemovalThreshold.trim() !== '';
+        if (circuitBreakerAutoRemovalDefined) {
+          ensureMapInDoc(doc, ['circuit-breaker-auto-removal']);
+          doc.setIn(
+            ['circuit-breaker-auto-removal', 'enabled'],
+            values.circuitBreakerAutoRemovalEnabled
+          );
+          setPositiveIntFromStringInDoc(
+            doc,
+            ['circuit-breaker-auto-removal', 'auto-remove-threshold'],
+            values.circuitBreakerAutoRemovalThreshold
+          );
+          deleteIfMapEmpty(doc, ['circuit-breaker-auto-removal']);
+        }
+
+        const codexKeysNode = doc.getIn(['codex-api-key'], true);
+        if (isSeq(codexKeysNode)) {
+          values.codexCircuitBreakerOverrides.forEach((override) => {
+            if (override.index < 0 || override.index >= codexKeysNode.items.length) return;
+
+            const failurePath: YamlPath = [
+              'codex-api-key',
+              override.index,
+              'circuit-breaker-failure-threshold',
+            ];
+            const recoveryPath: YamlPath = [
+              'codex-api-key',
+              override.index,
+              'circuit-breaker-recovery-timeout',
+            ];
+
+            setPositiveIntFromStringInDoc(doc, failurePath, override.failureThreshold);
+            setPositiveIntFromStringInDoc(doc, recoveryPath, override.recoveryTimeout);
+          });
+        }
+
+        const openaiProvidersNode = doc.getIn(['openai-compatibility'], true);
+        if (isSeq(openaiProvidersNode)) {
+          values.openaiCircuitBreakerOverrides.forEach((override) => {
+            if (override.index < 0 || override.index >= openaiProvidersNode.items.length) return;
+
+            const failurePath: YamlPath = [
+              'openai-compatibility',
+              override.index,
+              'circuit-breaker-failure-threshold',
+            ];
+            const recoveryPath: YamlPath = [
+              'openai-compatibility',
+              override.index,
+              'circuit-breaker-recovery-timeout',
+            ];
+
+            setPositiveIntFromStringInDoc(doc, failurePath, override.failureThreshold);
+            setPositiveIntFromStringInDoc(doc, recoveryPath, override.recoveryTimeout);
+          });
+        }
+
         return doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
       } catch {
         return currentYaml;
@@ -734,6 +959,8 @@ export function useVisualConfig() {
     visualParseError,
     visualValidationErrors,
     visualHasPayloadValidationErrors,
+    visualCircuitBreakerValidationErrors,
+    visualHasCircuitBreakerValidationErrors,
     loadVisualValuesFromYaml,
     applyVisualChangesToYaml,
     setVisualValues,

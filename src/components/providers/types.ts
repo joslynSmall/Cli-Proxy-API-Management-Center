@@ -16,6 +16,8 @@ export interface OpenAIFormState {
   testModel?: string;
   modelEntries: ModelEntry[];
   apiKeyEntries: ApiKeyEntry[];
+  circuitBreakerFailureThreshold?: number;
+  circuitBreakerRecoveryTimeout?: number;
 }
 
 export interface AmpcodeUpstreamApiKeyEntry {
