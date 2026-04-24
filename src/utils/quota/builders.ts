@@ -120,14 +120,21 @@ export function buildGeminiCliQuotaBuckets(
     .map((bucket) => {
       const uniqueModelIds = Array.from(new Set(bucket.modelIds));
       const preferred = bucket.preferredBucket;
+      const displayModelId =
+        preferred?.modelId ?? (uniqueModelIds.length > 0 ? uniqueModelIds[0] : undefined);
       const remainingFraction = preferred
         ? preferred.remainingFraction
         : bucket.fallbackRemainingFraction;
       const remainingAmount = preferred ? preferred.remainingAmount : bucket.fallbackRemainingAmount;
       const resetTime = preferred ? preferred.resetTime : bucket.fallbackResetTime;
+      const primaryLabel = displayModelId ?? bucket.label;
+      const seriesLabel =
+        bucket.label && bucket.label !== primaryLabel ? bucket.label : undefined;
       return {
         id: bucket.id,
-        label: bucket.label,
+        label: primaryLabel,
+        displayModelId,
+        seriesLabel,
         remainingFraction,
         remainingAmount,
         resetTime,

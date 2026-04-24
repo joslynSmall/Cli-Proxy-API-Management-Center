@@ -212,6 +212,8 @@ export interface AntigravityQuotaState {
 export interface GeminiCliQuotaBucketState {
   id: string;
   label: string;
+  displayModelId?: string;
+  seriesLabel?: string;
   remainingFraction: number | null;
   remainingAmount: number | null;
   resetTime: string | undefined;

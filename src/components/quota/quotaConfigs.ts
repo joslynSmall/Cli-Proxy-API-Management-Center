@@ -873,8 +873,10 @@ const renderGeminiCliItems = (
           : t('gemini_cli_quota.remaining_amount', {
               count: bucket.remainingAmount,
             });
-      const titleBase =
-        bucket.modelIds && bucket.modelIds.length > 0 ? bucket.modelIds.join(', ') : bucket.label;
+      const titleParts: string[] = [];
+      if (bucket.seriesLabel) titleParts.push(bucket.seriesLabel);
+      if (bucket.modelIds && bucket.modelIds.length > 0) titleParts.push(bucket.modelIds.join(', '));
+      const titleBase = titleParts.length > 0 ? titleParts.join(' | ') : bucket.label;
       const title = bucket.tokenType ? `${titleBase} (${bucket.tokenType})` : titleBase;
 
       const resetLabel = formatQuotaResetTime(bucket.resetTime);
