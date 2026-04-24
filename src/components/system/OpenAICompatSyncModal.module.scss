@@ -1,0 +1,84 @@
+.selectStep {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  flex-wrap: wrap;
+}
+
+.toolbarActions {
+  display: flex;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.count {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.list,
+.aliasList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.row,
+.aliasRow {
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  background: var(--bg-secondary);
+}
+
+.modelName {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.aliasRow {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.aliasMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.matchedBadge,
+.unmatchedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: $radius-full;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.matchedBadge {
+  color: #166534;
+  background: rgba(34, 197, 94, 0.16);
+}
+
+.unmatchedBadge {
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.18);
+}
