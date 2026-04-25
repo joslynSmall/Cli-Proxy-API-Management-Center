@@ -52,6 +52,28 @@ export interface StreamingConfig {
   nonstreamKeepaliveInterval: string;
 }
 
+export type ReasoningIngressDefaultEntry = {
+  id: string;
+  format: string;
+  policy: string;
+  mode: string;
+  value: string;
+};
+
+export type ReasoningDefaultModeOption = {
+  mode: string;
+  fieldPaths: string[];
+  values: string[];
+};
+
+export type ReasoningIngressFormatOption = {
+  format: string;
+  appliesTo?: string[];
+  policies: string[];
+  modes: ReasoningDefaultModeOption[];
+  availableModels?: string[];
+};
+
 export type CircuitBreakerProviderOverride = {
   id: string;
   index: number;
@@ -86,6 +108,7 @@ export type VisualConfigValues = {
   quotaSwitchPreviewModel: boolean;
   routingStrategy: 'round-robin' | 'fill-first';
   wsAuth: boolean;
+  reasoningDefaultsByFormat: ReasoningIngressDefaultEntry[];
   payloadDefaultRules: PayloadRule[];
   payloadDefaultRawRules: PayloadRule[];
   payloadOverrideRules: PayloadRule[];
@@ -129,6 +152,7 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
   quotaSwitchPreviewModel: true,
   routingStrategy: 'round-robin',
   wsAuth: false,
+  reasoningDefaultsByFormat: [],
   payloadDefaultRules: [],
   payloadDefaultRawRules: [],
   payloadOverrideRules: [],

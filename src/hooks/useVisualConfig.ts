@@ -6,6 +6,7 @@ import type {
   PayloadParamEntry,
   PayloadParamValueType,
   PayloadRule,
+  ReasoningIngressDefaultEntry,
   VisualConfigValues,
   VisualConfigValidationErrors,
   PayloadParamValidationErrorCode,
@@ -480,6 +481,45 @@ function parseOpenAICircuitBreakerOverrides(raw: unknown): CircuitBreakerProvide
   });
 }
 
+function parseReasoningDefaultsByFormat(raw: unknown): ReasoningIngressDefaultEntry[] {
+  const record = asRecord(raw);
+  if (!record) return [];
+
+  return Object.entries(record)
+    .map(([format, entry]) => {
+      const item = asRecord(entry);
+      const formatName = format.trim();
+      const policy = typeof item?.policy === 'string' ? item.policy.trim() : '';
+      const mode = typeof item?.mode === 'string' ? item.mode.trim() : '';
+      const value = typeof item?.value === 'string' ? item.value.trim() : '';
+      if (!formatName || !policy || !mode || !value) return null;
+      return {
+        id: `reasoning-default-${formatName}`,
+        format: formatName,
+        policy,
+        mode,
+        value,
+      } satisfies ReasoningIngressDefaultEntry;
+    })
+    .filter((entry): entry is ReasoningIngressDefaultEntry => entry !== null)
+    .sort((left, right) => left.format.localeCompare(right.format));
+}
+
+function serializeReasoningDefaultsByFormat(
+  entries: ReasoningIngressDefaultEntry[]
+): Record<string, { policy: string; mode: string; value: string }> {
+  const out: Record<string, { policy: string; mode: string; value: string }> = {};
+  for (const entry of entries) {
+    const format = entry.format.trim();
+    const policy = entry.policy.trim();
+    const mode = entry.mode.trim();
+    const value = entry.value.trim();
+    if (!format || !policy || !mode || !value) continue;
+    out[format] = { policy, mode, value };
+  }
+  return out;
+}
+
 function serializePayloadRulesForYaml(rules: PayloadRule[]): Array<Record<string, unknown>> {
   return rules
     .map((rule) => {
@@ -661,6 +701,9 @@ export function useVisualConfig() {
         maxRetryCredentials: String(parsed['max-retry-credentials'] ?? ''),
         maxRetryInterval: String(parsed['max-retry-interval'] ?? ''),
         wsAuth: Boolean(parsed['ws-auth']),
+        reasoningDefaultsByFormat: parseReasoningDefaultsByFormat(
+          parsed['default-reasoning-on-ingress-by-format']
+        ),
 
         quotaSwitchProject: Boolean(quotaExceeded?.['switch-project'] ?? true),
         quotaSwitchPreviewModel: Boolean(
@@ -778,6 +821,19 @@ export function useVisualConfig() {
         setIntFromStringInDoc(doc, ['max-retry-credentials'], values.maxRetryCredentials);
         setIntFromStringInDoc(doc, ['max-retry-interval'], values.maxRetryInterval);
         setBooleanInDoc(doc, ['ws-auth'], values.wsAuth);
+        const reasoningDefaults = serializeReasoningDefaultsByFormat(
+          values.reasoningDefaultsByFormat
+        );
+        if (
+          docHas(doc, ['default-reasoning-on-ingress-by-format']) ||
+          Object.keys(reasoningDefaults).length > 0
+        ) {
+          if (Object.keys(reasoningDefaults).length > 0) {
+            doc.setIn(['default-reasoning-on-ingress-by-format'], reasoningDefaults);
+          } else {
+            doc.deleteIn(['default-reasoning-on-ingress-by-format']);
+          }
+        }
 
         if (
           docHas(doc, ['quota-exceeded']) ||
