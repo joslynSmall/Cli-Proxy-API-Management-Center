@@ -26,8 +26,62 @@
   margin: 0;
 }
 
+.pageTabs {
+  display: flex;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+  align-items: center;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
+  border-radius: $radius-lg;
+  background: color-mix(in srgb, var(--bg-primary) 90%, transparent);
+  box-shadow: var(--shadow);
+
+  @include mobile {
+    width: 100%;
+  }
+}
+
+.pageTab {
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background-color: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color $transition-fast,
+    background-color $transition-fast,
+    border-color $transition-fast,
+    box-shadow $transition-fast,
+    transform $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+    background-color: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+  }
+}
+
+.pageTabActive {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, transparent), var(--bg-primary));
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--border-hover) 82%, transparent);
+  box-shadow: var(--shadow);
+}
+
 .errorBox {
   padding: $spacing-md;
+  margin-bottom: $spacing-md;
   background-color: rgba($error-color, 0.1);
   border: 1px solid var(--danger-color);
   border-radius: $radius-md;
@@ -36,46 +90,73 @@
 }
 
 .statsRow {
-  display: flex;
+  display: grid;
   gap: $spacing-md;
-  flex-wrap: wrap;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 
   @include mobile {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 }
 
 .statCard {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: $spacing-md $spacing-xl;
-  background-color: var(--bg-secondary);
-  border-radius: $radius-md;
-  border: 1px solid var(--border-color);
-  min-width: 100px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 120px;
+  padding: 18px 20px;
+  background:
+    radial-gradient(140% 120% at 0% 0%, color-mix(in srgb, var(--bg-quinary) 88%, transparent), transparent 58%),
+    var(--bg-primary);
+  border-radius: $radius-lg;
+  border: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--primary-color) 70%, white), transparent);
+    opacity: 0.95;
+  }
 }
 
 .statValue {
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 .statLabel {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-weight: 700;
 }
 
 .statOpen .statValue {
   color: var(--danger-color);
 }
 
+.statOpen::before {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--danger-color) 76%, white), transparent);
+}
+
 .statHalfOpen .statValue {
   color: var(--warning-color);
+}
+
+.statHalfOpen::before {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warning-color) 76%, white), transparent);
 }
 
 .cardActions {
@@ -83,14 +164,17 @@
   gap: $spacing-sm;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .filterTabs {
   display: flex;
   gap: 2px;
-  background-color: var(--bg-secondary);
-  border-radius: $radius-md;
-  padding: 2px;
+  background-color: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 10px;
+  padding: 3px;
+  flex-wrap: wrap;
 }
 
 .filterTab {
@@ -105,13 +189,20 @@
 
   &:hover {
     color: var(--text-primary);
+    background-color: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 16%, transparent);
   }
 }
 
 .filterTabActive {
-  background-color: var(--bg-primary);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, transparent), var(--bg-quinary));
   color: var(--text-primary);
-  box-shadow: $shadow-sm;
+  box-shadow: var(--shadow);
 }
 
 .loading,
@@ -122,21 +213,127 @@
   font-size: 14px;
 }
 
+.groupList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.groupSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, transparent), color-mix(in srgb, var(--bg-quinary) 92%, transparent));
+  box-shadow: var(--shadow);
+  transition:
+    border-color $transition-fast,
+    box-shadow $transition-fast,
+    transform $transition-fast;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--border-hover) 85%, transparent);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-1px);
+  }
+
+  @include mobile {
+    padding: 16px;
+  }
+}
+
+.groupHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding-bottom: 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+
+  @include mobile {
+    flex-direction: column;
+  }
+}
+
+.groupHeaderMain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.groupTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.groupCount {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  background: color-mix(in srgb, var(--count-badge-bg) 74%, var(--bg-primary));
+  color: var(--count-badge-text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.groupMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.groupStateChip {
+  min-height: 28px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.groupBody {
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  overflow: hidden;
+}
+
 .tableWrapper {
   overflow-x: auto;
+  border-radius: inherit;
 }
 
 .table {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
 
   th,
   td {
-    padding: 10px 12px;
+    padding: 12px 14px;
     text-align: left;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
     white-space: nowrap;
+    vertical-align: top;
   }
 
   th {
@@ -145,60 +342,125 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    background-color: var(--bg-secondary);
+    background-color: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
   }
 
   tbody tr:hover {
-    background-color: var(--bg-secondary);
+    background-color: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
   }
 }
 
 .rowOpen {
-  background-color: rgba($error-color, 0.04);
+  background:
+    linear-gradient(90deg, rgba($error-color, 0.08), rgba($error-color, 0.02) 28%, transparent 70%);
+}
+
+.rowFailed {
+  background-color: rgba($warning-color, 0.08);
 }
 
 .cellClient code,
-.cellModel code {
+.cellModel code,
+.cellStack code {
   font-size: 12px;
-  background-color: var(--bg-secondary);
-  padding: 2px 6px;
-  border-radius: $radius-sm;
+  background-color: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
   color: var(--text-primary);
+}
+
+.cellStack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .cellTime {
   font-size: 12px;
   color: var(--text-secondary);
-  max-width: 180px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondaryText,
+.readOnlyText {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.errorText {
+  font-size: 12px;
+  color: var(--danger-color);
+  white-space: normal;
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  width: fit-content;
+  padding: 4px 10px;
   border-radius: $radius-full;
+  border: 1px solid transparent;
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.2;
 }
 
-.badgeClosed {
+.badgeClosed,
+.badgeDeleted {
   background-color: rgba($success-color, 0.15);
   color: $success-color;
+  border-color: rgba($success-color, 0.28);
 }
 
-.badgeOpen {
+.badgeOpen,
+.badgeFailed {
   background-color: rgba($error-color, 0.15);
   color: var(--danger-color);
+  border-color: rgba($error-color, 0.28);
 }
 
-.badgeHalfOpen {
+.badgeHalfOpen,
+.badgePending {
   background-color: rgba($warning-color, 0.15);
   color: $warning-color;
+  border-color: rgba($warning-color, 0.28);
+}
+
+.badgeDismissed {
+  background-color: rgba($gray-500, 0.12);
+  color: var(--text-secondary);
+  border-color: rgba($gray-500, 0.2);
 }
 
 .actionButtons {
   display: flex;
   gap: $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-top: $spacing-md;
+
+  @include mobile {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.pageInfo {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
 }

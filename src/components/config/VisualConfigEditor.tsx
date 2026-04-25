@@ -12,6 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
+import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
@@ -34,11 +35,14 @@ import type {
   PayloadFilterRule,
   PayloadParamValidationErrorCode,
   PayloadRule,
+  ReasoningIngressFormatOption,
   VisualConfigFieldPath,
   VisualConfigValidationErrorCode,
   VisualConfigValidationErrors,
   VisualConfigValues,
 } from '@/types/visualConfig';
+import { makeClientId } from '@/types/visualConfig';
+import { reasoningDefaultsApi } from '@/services/api';
 import {
   ApiKeysCardEditor,
   PayloadFilterRulesEditor,
@@ -175,6 +179,50 @@ function FieldShell({
   );
 }
 
+const FALLBACK_REASONING_OPTIONS: ReasoningIngressFormatOption[] = [
+  {
+    format: 'openai',
+    appliesTo: ['POST /v1/chat/completions', 'POST /v1/responses', 'POST /v1/responses/compact', 'GET /v1/responses/ws'],
+    policies: ['missing_only', 'force_override'],
+    modes: [
+      {
+        mode: 'effort',
+        fieldPaths: ['reasoning_effort', 'reasoning.effort'],
+        values: ['none', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      },
+    ],
+  },
+  {
+    format: 'claude',
+    appliesTo: ['POST /v1/messages'],
+    policies: ['missing_only', 'force_override'],
+    modes: [
+      {
+        mode: 'adaptive_effort',
+        fieldPaths: ['thinking.type', 'output_config.effort'],
+        values: ['low', 'medium', 'high', 'max'],
+      },
+      {
+        mode: 'disabled',
+        fieldPaths: ['thinking.type'],
+        values: ['disabled'],
+      },
+    ],
+  },
+  {
+    format: 'gemini',
+    appliesTo: ['POST /v1beta/models/*:generateContent', 'POST /v1beta/models/*:streamGenerateContent'],
+    policies: ['missing_only', 'force_override'],
+    modes: [
+      {
+        mode: 'level',
+        fieldPaths: ['generationConfig.thinkingConfig.thinkingLevel'],
+        values: ['none', 'auto', 'minimal', 'low', 'medium', 'high'],
+      },
+    ],
+  },
+];
+
 export function VisualConfigEditor({
   values,
   validationErrors,
@@ -199,6 +247,10 @@ export function VisualConfigEditor({
   const nonstreamKeepaliveHintId = `${nonstreamKeepaliveInputId}-hint`;
   const nonstreamKeepaliveErrorId = `${nonstreamKeepaliveInputId}-error`;
   const [activeSectionId, setActiveSectionId] = useState<VisualSectionId>('server');
+  const [reasoningOptions, setReasoningOptions] =
+    useState<ReasoningIngressFormatOption[]>(FALLBACK_REASONING_OPTIONS);
+  const [reasoningOptionsLoading, setReasoningOptionsLoading] = useState(true);
+  const [reasoningOptionsLoadError, setReasoningOptionsLoadError] = useState<string | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const sidebarAnchorRef = useRef<HTMLElement | null>(null);
   const floatingSidebarRef = useRef<HTMLDivElement | null>(null);
@@ -257,6 +309,141 @@ export function VisualConfigEditor({
     (payloadFilterRules: PayloadFilterRule[]) => onChange({ payloadFilterRules }),
     [onChange]
   );
+  const reasoningFormatSpecs = useMemo(() => {
+    const map = new Map<string, ReasoningIngressFormatOption>();
+    for (const item of reasoningOptions) {
+      map.set(item.format, item);
+    }
+    return map;
+  }, [reasoningOptions]);
+  const reasoningFormatSelectOptions = useMemo(
+    () =>
+      reasoningOptions.map((item) => ({
+        value: item.format,
+        label: item.format,
+      })),
+    [reasoningOptions]
+  );
+
+  const addReasoningDefaultEntry = useCallback(() => {
+    if (reasoningOptions.length === 0) return;
+    const formatSpec = reasoningOptions[0];
+    const modeSpec = formatSpec.modes[0];
+    const policy = formatSpec.policies[0];
+    if (!modeSpec || modeSpec.values.length === 0) return;
+    onChange({
+      reasoningDefaultsByFormat: [
+        ...values.reasoningDefaultsByFormat,
+        {
+          id: makeClientId(),
+          format: formatSpec.format,
+          policy: policy ?? '',
+          mode: modeSpec.mode,
+          value: modeSpec.values[0],
+        },
+      ],
+    });
+  }, [onChange, reasoningOptions, values.reasoningDefaultsByFormat]);
+
+  const removeReasoningDefaultEntry = useCallback(
+    (id: string) => {
+      onChange({
+        reasoningDefaultsByFormat: values.reasoningDefaultsByFormat.filter(
+          (entry) => entry.id !== id
+        ),
+      });
+    },
+    [onChange, values.reasoningDefaultsByFormat]
+  );
+
+  const updateReasoningDefaultEntry = useCallback(
+    (
+      id: string,
+      updater: (
+        current: VisualConfigValues['reasoningDefaultsByFormat'][number]
+      ) => VisualConfigValues['reasoningDefaultsByFormat'][number]
+    ) => {
+      onChange({
+        reasoningDefaultsByFormat: values.reasoningDefaultsByFormat.map((entry) =>
+          entry.id === id ? updater(entry) : entry
+        ),
+      });
+    },
+    [onChange, values.reasoningDefaultsByFormat]
+  );
+
+  const changeReasoningFormat = useCallback(
+    (id: string, format: string) => {
+      const formatSpec = reasoningFormatSpecs.get(format);
+      const modeSpec = formatSpec?.modes[0];
+      if (!formatSpec || !modeSpec || modeSpec.values.length === 0) return;
+      updateReasoningDefaultEntry(id, (entry) => ({
+        ...entry,
+        format: formatSpec.format,
+        policy: formatSpec.policies[0] ?? '',
+        mode: modeSpec.mode,
+        value: modeSpec.values[0],
+      }));
+    },
+    [reasoningFormatSpecs, updateReasoningDefaultEntry]
+  );
+
+  const changeReasoningPolicy = useCallback(
+    (id: string, policy: string) => {
+      updateReasoningDefaultEntry(id, (entry) => ({ ...entry, policy }));
+    },
+    [updateReasoningDefaultEntry]
+  );
+
+  const changeReasoningMode = useCallback(
+    (id: string, mode: string) => {
+      updateReasoningDefaultEntry(id, (entry) => {
+        const formatSpec = reasoningFormatSpecs.get(entry.format);
+        const modeSpec = formatSpec?.modes.find((item) => item.mode === mode);
+        if (!formatSpec || !modeSpec || modeSpec.values.length === 0) return entry;
+        return {
+          ...entry,
+          mode: modeSpec.mode,
+          value: modeSpec.values.includes(entry.value) ? entry.value : modeSpec.values[0],
+        };
+      });
+    },
+    [reasoningFormatSpecs, updateReasoningDefaultEntry]
+  );
+
+  const changeReasoningValue = useCallback(
+    (id: string, value: string) => {
+      updateReasoningDefaultEntry(id, (entry) => ({ ...entry, value }));
+    },
+    [updateReasoningDefaultEntry]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    reasoningDefaultsApi
+      .getOptions()
+      .then((items) => {
+        if (cancelled) return;
+        if (items.length > 0) {
+          setReasoningOptions(items);
+          return;
+        }
+        setReasoningOptions(FALLBACK_REASONING_OPTIONS);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : '';
+        setReasoningOptions(FALLBACK_REASONING_OPTIONS);
+        setReasoningOptionsLoadError(message || 'failed');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setReasoningOptionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const countErrors = useCallback(
     (fields: VisualConfigFieldPath[]) =>
@@ -933,6 +1120,114 @@ export function VisualConfigEditor({
                   />
                 </FieldShell>
               </SectionGrid>
+
+              <SectionSubsection
+                title={t('config_management.visual.sections.network.reasoning_defaults_title')}
+                description={t('config_management.visual.sections.network.reasoning_defaults_desc')}
+              >
+                {reasoningOptionsLoading ? (
+                  <p className={styles.subsectionDescription}>
+                    {t('config_management.visual.sections.network.reasoning_loading_options')}
+                  </p>
+                ) : null}
+                {reasoningOptionsLoadError ? (
+                  <p className={styles.subsectionDescription}>
+                    {t('config_management.visual.sections.network.reasoning_options_failed')}
+                  </p>
+                ) : null}
+                {values.reasoningDefaultsByFormat.length === 0 ? (
+                  <p className={styles.subsectionDescription}>
+                    {t('config_management.visual.sections.network.reasoning_empty')}
+                  </p>
+                ) : null}
+                {values.reasoningDefaultsByFormat.map((entry) => {
+                  const formatSpec = reasoningFormatSpecs.get(entry.format);
+                  const modeSpec =
+                    formatSpec?.modes.find((item) => item.mode === entry.mode) ??
+                    formatSpec?.modes[0];
+                  const modeOptions = (formatSpec?.modes ?? []).map((item) => ({
+                    value: item.mode,
+                    label: item.mode,
+                  }));
+                  const policyOptions = (formatSpec?.policies ?? []).map((item) => ({
+                    value: item,
+                    label: item,
+                  }));
+                  const valueOptions = (modeSpec?.values ?? []).map((item) => ({
+                    value: item,
+                    label: item,
+                  }));
+                  return (
+                    <SectionGrid key={entry.id}>
+                      <FieldShell
+                        label={t('config_management.visual.sections.network.reasoning_provider')}
+                      >
+                        <Select
+                          value={entry.format}
+                          options={reasoningFormatSelectOptions}
+                          disabled={disabled || reasoningFormatSelectOptions.length === 0}
+                          onChange={(nextFormat) =>
+                            changeReasoningFormat(entry.id, nextFormat)
+                          }
+                        />
+                      </FieldShell>
+                      <FieldShell
+                        label={t('config_management.visual.sections.network.reasoning_policy')}
+                      >
+                        <Select
+                          value={entry.policy}
+                          options={policyOptions}
+                          disabled={disabled || policyOptions.length === 0}
+                          onChange={(nextPolicy) => changeReasoningPolicy(entry.id, nextPolicy)}
+                        />
+                      </FieldShell>
+                      <FieldShell label={t('config_management.visual.sections.network.reasoning_mode')}>
+                        <Select
+                          value={entry.mode}
+                          options={modeOptions}
+                          disabled={disabled || modeOptions.length === 0}
+                          onChange={(nextMode) => changeReasoningMode(entry.id, nextMode)}
+                        />
+                      </FieldShell>
+                      <FieldShell
+                        label={t('config_management.visual.sections.network.reasoning_value')}
+                        hint={
+                          modeSpec?.fieldPaths?.length
+                            ? `${t('config_management.visual.sections.network.reasoning_field_paths')}: ${modeSpec.fieldPaths.join(', ')}`
+                            : undefined
+                        }
+                      >
+                        <Select
+                          value={entry.value}
+                          options={valueOptions}
+                          disabled={disabled || valueOptions.length === 0}
+                          onChange={(nextValue) => changeReasoningValue(entry.id, nextValue)}
+                        />
+                      </FieldShell>
+                      <FieldShell
+                        label={t('config_management.visual.sections.network.reasoning_actions')}
+                      >
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          disabled={disabled}
+                          onClick={() => removeReasoningDefaultEntry(entry.id)}
+                        >
+                          {t('config_management.visual.sections.network.reasoning_remove')}
+                        </Button>
+                      </FieldShell>
+                    </SectionGrid>
+                  );
+                })}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={disabled || reasoningFormatSelectOptions.length === 0}
+                  onClick={addReasoningDefaultEntry}
+                >
+                  {t('config_management.visual.sections.network.reasoning_add')}
+                </Button>
+              </SectionSubsection>
 
               <SectionGrid>
                 <ToggleRow
