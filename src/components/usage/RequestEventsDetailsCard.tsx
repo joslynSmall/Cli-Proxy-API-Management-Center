@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -8,20 +8,27 @@ import { Select, type SelectOption } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { authFilesApi } from '@/services/api/authFiles';
 import { logsApi } from '@/services/api/logs';
+import { requestEventToUsageDetail, usageApi } from '@/services/api/usage';
+import { useNotificationStore } from '@/stores';
 import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
 import type { AuthFileItem } from '@/types/authFile';
 import type { CredentialInfo } from '@/types/sourceInfo';
+import { copyToClipboard } from '@/utils/clipboard';
 import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
 import {
-  collectUsageDetails,
   extractTotalTokens,
-  normalizeAuthIndex
+  normalizeAuthIndex,
+  type UsageDetail,
+  type UsageTimeRange,
 } from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
 const ALL_FILTER = '__all__';
 const MAX_RENDERED_EVENTS = 500;
+const MAX_STORED_EVENTS = 1000;
+const REQUEST_EVENTS_SNAPSHOT_LIMIT = 1000;
+const MAX_STREAM_RETRY_DELAY_MS = 30_000;
 
 type RequestEventRow = {
   id: string;
@@ -60,7 +67,7 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 export interface RequestEventsDetailsCardProps {
-  usage: unknown;
+  usageDetails: UsageDetail[];
   loading: boolean;
   geminiKeys: GeminiKeyConfig[];
   claudeConfigs: ProviderKeyConfig[];
@@ -70,6 +77,8 @@ export interface RequestEventsDetailsCardProps {
   autoRefreshEnabled: boolean;
   autoRefreshInterval: string;
   autoRefreshIntervalOptions: ReadonlyArray<SelectOption>;
+  autoRefreshPaused?: boolean;
+  timeRange?: UsageTimeRange;
   onAutoRefreshChange: (enabled: boolean) => void;
   onAutoRefreshIntervalChange: (intervalMs: number) => void;
 }
@@ -87,8 +96,29 @@ const encodeCsv = (value: string | number): string => {
   return `"${safeText.replace(/"/g, '""')}"`;
 };
 
+const mergeRequestEventDetail = (
+  previous: UsageDetail[],
+  nextEvent: UsageDetail
+): UsageDetail[] => {
+  const nextEventId =
+    typeof nextEvent.__eventId === 'number' && nextEvent.__eventId > 0 ? nextEvent.__eventId : null;
+
+  const deduped = nextEventId
+    ? previous.filter((detail) => detail.__eventId !== nextEventId)
+    : previous.filter(
+        (detail) =>
+          !(
+            detail.request_id === nextEvent.request_id &&
+            detail.timestamp === nextEvent.timestamp &&
+            detail.__modelName === nextEvent.__modelName
+          )
+      );
+
+  return [nextEvent, ...deduped].slice(0, MAX_STORED_EVENTS);
+};
+
 export function RequestEventsDetailsCard({
-  usage,
+  usageDetails,
   loading,
   geminiKeys,
   claudeConfigs,
@@ -98,10 +128,14 @@ export function RequestEventsDetailsCard({
   autoRefreshEnabled,
   autoRefreshInterval,
   autoRefreshIntervalOptions,
+  autoRefreshPaused = false,
+  timeRange = 'all',
   onAutoRefreshChange,
-  onAutoRefreshIntervalChange
+  onAutoRefreshIntervalChange,
 }: RequestEventsDetailsCardProps) {
   const { t, i18n } = useTranslation();
+  const { showNotification } = useNotificationStore();
+  const autoRefreshDelayMs = Number(autoRefreshInterval);
 
   const [modelFilter, setModelFilter] = useState(ALL_FILTER);
   const [sourceFilter, setSourceFilter] = useState(ALL_FILTER);
@@ -111,6 +145,22 @@ export function RequestEventsDetailsCard({
   const [requestLogContent, setRequestLogContent] = useState('');
   const [requestLogLoading, setRequestLogLoading] = useState(false);
   const [requestLogError, setRequestLogError] = useState('');
+  const [eventDetails, setEventDetails] = useState<UsageDetail[]>(usageDetails);
+  const isMountedRef = useRef(true);
+  const latestEventIdRef = useRef(0);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefreshEnabled) {
+      setEventDetails(usageDetails);
+    }
+  }, [autoRefreshEnabled, usageDetails]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +176,7 @@ export function RequestEventsDetailsCard({
           if (!key) return;
           map.set(key, {
             name: file.name || key,
-            type: (file.type || file.provider || '').toString()
+            type: (file.type || file.provider || '').toString(),
           });
         });
         setAuthFileMap(map);
@@ -162,6 +212,135 @@ export function RequestEventsDetailsCard({
     };
   }, [activeRequestLogId, t]);
 
+  useEffect(() => {
+    if (!autoRefreshEnabled || autoRefreshPaused) {
+      return;
+    }
+
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempts = 0;
+    let streamAbortController: AbortController | null = null;
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const applySnapshot = async (): Promise<boolean> => {
+      const page = await usageApi.listRequestEvents({
+        timeRange,
+        limit: REQUEST_EVENTS_SNAPSHOT_LIMIT,
+      });
+      if (disposed || !isMountedRef.current) {
+        return false;
+      }
+      latestEventIdRef.current = Math.max(Number(page.latest_event_id ?? 0), 0);
+      startTransition(() => {
+        setEventDetails((page.items ?? []).map(requestEventToUsageDetail));
+      });
+      return true;
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed) {
+        return;
+      }
+      clearReconnectTimer();
+      reconnectAttempts += 1;
+      const baseDelay =
+        Number.isFinite(autoRefreshDelayMs) && autoRefreshDelayMs > 0 ? autoRefreshDelayMs : 5_000;
+      const delay = Math.min(baseDelay * reconnectAttempts, MAX_STREAM_RETRY_DELAY_MS);
+      reconnectTimer = setTimeout(() => {
+        void syncAndStream();
+      }, delay);
+    };
+
+    const openStream = async () => {
+      if (disposed) {
+        return;
+      }
+
+      let resetRequired = false;
+      streamAbortController = new AbortController();
+
+      try {
+        await usageApi.openRequestEventsStream({
+          sinceId: latestEventIdRef.current,
+          signal: streamAbortController.signal,
+          onEvent: (event) => {
+            reconnectAttempts = 0;
+            latestEventIdRef.current = Math.max(
+              latestEventIdRef.current,
+              Number(event.event_id ?? 0),
+              0
+            );
+            startTransition(() => {
+              setEventDetails((previous) =>
+                mergeRequestEventDetail(previous, requestEventToUsageDetail(event))
+              );
+            });
+          },
+          onResetRequired: () => {
+            resetRequired = true;
+          },
+        });
+      } catch {
+        if (disposed || streamAbortController.signal.aborted) {
+          return;
+        }
+        scheduleReconnect();
+        return;
+      }
+
+      if (disposed || streamAbortController.signal.aborted) {
+        return;
+      }
+
+      if (resetRequired) {
+        void syncAndStream();
+        return;
+      }
+
+      scheduleReconnect();
+    };
+
+    const syncAndStream = async () => {
+      if (disposed) {
+        return;
+      }
+
+      clearReconnectTimer();
+      if (streamAbortController) {
+        streamAbortController.abort();
+        streamAbortController = null;
+      }
+
+      try {
+        const snapshotApplied = await applySnapshot();
+        if (!snapshotApplied || disposed) {
+          return;
+        }
+        reconnectAttempts = 0;
+        await openStream();
+      } catch {
+        scheduleReconnect();
+      }
+    };
+
+    void syncAndStream();
+
+    return () => {
+      disposed = true;
+      clearReconnectTimer();
+      if (streamAbortController) {
+        streamAbortController.abort();
+      }
+    };
+  }, [autoRefreshDelayMs, autoRefreshEnabled, autoRefreshPaused, timeRange]);
+
   const sourceInfoMap = useMemo(
     () =>
       buildSourceInfoMap({
@@ -175,9 +354,7 @@ export function RequestEventsDetailsCard({
   );
 
   const rows = useMemo<RequestEventRow[]>(() => {
-    const details = collectUsageDetails(usage);
-
-    return details
+    return eventDetails
       .map((detail, index) => {
         const timestamp = detail.timestamp;
         const timestampMs =
@@ -187,13 +364,19 @@ export function RequestEventsDetailsCard({
         const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
         const sourceRaw = String(detail.source ?? '').trim();
         const failureStage = String(detail.failure_stage ?? '').trim();
-        const sourceFallback = sourceRaw || (failureStage === 'auth_selection' ? 'auth-selection' : '');
+        const sourceFallback =
+          sourceRaw || (failureStage === 'auth_selection' ? 'auth-selection' : '');
         const authIndexRaw = detail.auth_index as unknown;
         const authIndex =
           authIndexRaw === null || authIndexRaw === undefined || authIndexRaw === ''
             ? '-'
             : String(authIndexRaw);
-        const sourceInfo = resolveSourceDisplay(sourceFallback, authIndexRaw, sourceInfoMap, authFileMap);
+        const sourceInfo = resolveSourceDisplay(
+          sourceFallback,
+          authIndexRaw,
+          sourceInfoMap,
+          authFileMap
+        );
         const source = sourceInfo.displayName;
         const sourceType = sourceInfo.type;
         const model = String(detail.__modelName ?? '').trim() || '-';
@@ -244,19 +427,19 @@ export function RequestEventsDetailsCard({
           outputTokens,
           reasoningTokens,
           cachedTokens,
-          totalTokens
+          totalTokens,
         };
       })
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [authFileMap, i18n.language, sourceInfoMap, usage]);
+  }, [authFileMap, eventDetails, i18n.language, sourceInfoMap]);
 
   const modelOptions = useMemo(
     () => [
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
       ...Array.from(new Set(rows.map((row) => row.model))).map((model) => ({
         value: model,
-        label: model
-      }))
+        label: model,
+      })),
     ],
     [rows, t]
   );
@@ -266,8 +449,8 @@ export function RequestEventsDetailsCard({
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
       ...Array.from(new Set(rows.map((row) => row.source))).map((source) => ({
         value: source,
-        label: source
-      }))
+        label: source,
+      })),
     ],
     [rows, t]
   );
@@ -277,8 +460,8 @@ export function RequestEventsDetailsCard({
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
       ...Array.from(new Set(rows.map((row) => row.authIndex))).map((authIndex) => ({
         value: authIndex,
-        label: authIndex
-      }))
+        label: authIndex,
+      })),
     ],
     [rows, t]
   );
@@ -305,8 +488,10 @@ export function RequestEventsDetailsCard({
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
-        const modelMatched = effectiveModelFilter === ALL_FILTER || row.model === effectiveModelFilter;
-        const sourceMatched = effectiveSourceFilter === ALL_FILTER || row.source === effectiveSourceFilter;
+        const modelMatched =
+          effectiveModelFilter === ALL_FILTER || row.model === effectiveModelFilter;
+        const sourceMatched =
+          effectiveSourceFilter === ALL_FILTER || row.source === effectiveSourceFilter;
         const authIndexMatched =
           effectiveAuthIndexFilter === ALL_FILTER || row.authIndex === effectiveAuthIndexFilter;
         return modelMatched && sourceMatched && authIndexMatched;
@@ -314,10 +499,7 @@ export function RequestEventsDetailsCard({
     [effectiveAuthIndexFilter, effectiveModelFilter, effectiveSourceFilter, rows]
   );
 
-  const renderedRows = useMemo(
-    () => filteredRows.slice(0, MAX_RENDERED_EVENTS),
-    [filteredRows]
-  );
+  const renderedRows = useMemo(() => filteredRows.slice(0, MAX_RENDERED_EVENTS), [filteredRows]);
 
   const hasActiveFilters =
     effectiveModelFilter !== ALL_FILTER ||
@@ -352,7 +534,7 @@ export function RequestEventsDetailsCard({
       'output_tokens',
       'reasoning_tokens',
       'cached_tokens',
-      'total_tokens'
+      'total_tokens',
     ];
 
     const csvRows = filteredRows.map((row) =>
@@ -375,7 +557,7 @@ export function RequestEventsDetailsCard({
         row.outputTokens,
         row.reasoningTokens,
         row.cachedTokens,
-        row.totalTokens
+        row.totalTokens,
       ]
         .map((value) => encodeCsv(value))
         .join(',')
@@ -385,7 +567,7 @@ export function RequestEventsDetailsCard({
     const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
     downloadBlob({
       filename: `usage-events-${fileTime}.csv`,
-      blob: new Blob([content], { type: 'text/csv;charset=utf-8' })
+      blob: new Blob([content], { type: 'text/csv;charset=utf-8' }),
     });
   };
 
@@ -412,15 +594,15 @@ export function RequestEventsDetailsCard({
         output_tokens: row.outputTokens,
         reasoning_tokens: row.reasoningTokens,
         cached_tokens: row.cachedTokens,
-        total_tokens: row.totalTokens
-      }
+        total_tokens: row.totalTokens,
+      },
     }));
 
     const content = JSON.stringify(payload, null, 2);
     const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
     downloadBlob({
       filename: `usage-events-${fileTime}.json`,
-      blob: new Blob([content], { type: 'application/json;charset=utf-8' })
+      blob: new Blob([content], { type: 'application/json;charset=utf-8' }),
     });
   };
 
@@ -437,6 +619,22 @@ export function RequestEventsDetailsCard({
     setRequestLogLoading(true);
     setActiveRequestLogId(requestLogId);
   };
+
+  const copyRequestLog = async () => {
+    if (!requestLogContent) return;
+
+    const copied = await copyToClipboard(requestLogContent);
+    if (copied) {
+      showNotification(
+        t('logs.copy_success', { defaultValue: 'Log copied to clipboard' }),
+        'success'
+      );
+    } else {
+      showNotification(t('logs.copy_failed', { defaultValue: 'Copy failed' }), 'error');
+    }
+  };
+
+  const canCopyRequestLog = !requestLogLoading && !requestLogError && Boolean(requestLogContent);
 
   return (
     <>
@@ -535,6 +733,7 @@ export function RequestEventsDetailsCard({
             />
           </div>
         </div>
+        <div className={styles.hint}>{t('usage_stats.request_events_live_sync_hint')}</div>
 
         {loading && rows.length === 0 ? (
           <div className={styles.hint}>{t('common.loading')}</div>
@@ -556,7 +755,7 @@ export function RequestEventsDetailsCard({
                 <span className={styles.requestEventsLimitHint}>
                   {t('usage_stats.request_events_limit_hint', {
                     shown: MAX_RENDERED_EVENTS,
-                    total: filteredRows.length
+                    total: filteredRows.length,
                   })}
                 </span>
               )}
@@ -587,7 +786,10 @@ export function RequestEventsDetailsCard({
                   {renderedRows.map((row) => {
                     const logTarget = row.requestLogRef || row.requestId;
                     const errorSummary =
-                      row.errorMessage || row.errorCode || row.failureStage || (row.failed ? '-' : '');
+                      row.errorMessage ||
+                      row.errorCode ||
+                      row.failureStage ||
+                      (row.failed ? '-' : '');
                     const upstreamRequestIdsText = row.upstreamRequestIds.join(', ');
 
                     return (
@@ -607,13 +809,19 @@ export function RequestEventsDetailsCard({
                         </td>
                         <td>
                           <span
-                            className={row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}
+                            className={
+                              row.failed
+                                ? styles.requestEventsResultFailed
+                                : styles.requestEventsResultSuccess
+                            }
                           >
                             {row.failed ? t('stats.failure') : t('stats.success')}
                           </span>
                         </td>
                         <td className={styles.requestEventsErrorCell} title={errorSummary || '-'}>
-                          <span className={styles.requestEventsErrorMain}>{errorSummary || '-'}</span>
+                          <span className={styles.requestEventsErrorMain}>
+                            {errorSummary || '-'}
+                          </span>
                           {(row.failureStage || row.errorCode) && (
                             <span className={styles.requestEventsErrorMeta}>
                               {[row.failureStage, row.errorCode].filter(Boolean).join(' / ')}
@@ -670,9 +878,18 @@ export function RequestEventsDetailsCard({
         }
         width={980}
         footer={
-          <Button variant="secondary" onClick={closeRequestLogModal}>
-            {t('common.close')}
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => void copyRequestLog()}
+              disabled={!canCopyRequestLog}
+            >
+              {t('common.copy')}
+            </Button>
+            <Button variant="secondary" onClick={closeRequestLogModal}>
+              {t('common.close')}
+            </Button>
+          </>
         }
       >
         <div className={styles.requestLogModalBody}>

@@ -16,7 +16,6 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useInterval } from '@/hooks/useInterval';
 import { useThemeStore, useConfigStore } from '@/stores';
 import {
   StatCards,
@@ -39,6 +38,7 @@ import {
   getApiStats,
   getModelStats,
   filterUsageByTimeRange,
+  filterUsageDetailsByTimeRange,
   type UsageTimeRange
 } from '@/utils/usage';
 import styles from './UsagePage.module.scss';
@@ -178,6 +178,7 @@ export function UsagePage() {
   // Data hook
   const {
     usage,
+    usageDetails,
     loading,
     error,
     lastRefreshedAt,
@@ -220,6 +221,10 @@ export function UsagePage() {
   const filteredUsage = useMemo(
     () => (usage ? filterUsageByTimeRange(usage, timeRange) : null),
     [usage, timeRange]
+  );
+  const filteredUsageDetails = useMemo(
+    () => filterUsageDetailsByTimeRange(usageDetails, timeRange),
+    [timeRange, usageDetails]
   );
   const hourWindowHours =
     timeRange === 'all' ? undefined : HOUR_WINDOW_BY_TIME_RANGE[timeRange];
@@ -274,16 +279,6 @@ export function UsagePage() {
       // Ignore storage errors.
     }
   }, [autoRefreshIntervalMs]);
-
-  useInterval(
-    () => {
-      if (loading || exporting || importing) {
-        return;
-      }
-      void loadUsage().catch(() => {});
-    },
-    autoRefreshEnabled ? autoRefreshIntervalMs : null
-  );
 
   const nowMs = lastRefreshedAt?.getTime() ?? 0;
 
@@ -404,7 +399,7 @@ export function UsagePage() {
       />
 
       <RequestEventsDetailsCard
-        usage={filteredUsage}
+        usageDetails={filteredUsageDetails}
         loading={loading}
         geminiKeys={config?.geminiApiKeys || []}
         claudeConfigs={config?.claudeApiKeys || []}
@@ -414,6 +409,8 @@ export function UsagePage() {
         autoRefreshEnabled={autoRefreshEnabled}
         autoRefreshInterval={String(autoRefreshIntervalMs)}
         autoRefreshIntervalOptions={autoRefreshIntervalOptions}
+        autoRefreshPaused={loading || exporting || importing}
+        timeRange={timeRange}
         onAutoRefreshChange={setAutoRefreshEnabled}
         onAutoRefreshIntervalChange={handleAutoRefreshIntervalChange}
       />
