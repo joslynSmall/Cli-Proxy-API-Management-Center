@@ -1542,7 +1542,11 @@
     "sync_models_alias_matched": "Подобрано автоматически",
     "sync_models_alias_manual": "Заполнить вручную",
     "sync_models_modal_title_select": "Выберите модели для синхронизации - {{provider}}",
-    "sync_models_modal_title_alias": "Подтвердите alias моделей - {{provider}}"
+    "sync_models_modal_title_alias": "Подтвердите alias моделей - {{provider}}",
+    "sync_models_ref_title": "Настроенные модели",
+    "sync_models_ref_search_placeholder": "Поиск моделей...",
+    "sync_models_ref_empty": "Нет совпадений",
+    "sync_models_copy": "Копировать"
   },
   "notification": {
     "debug_updated": "Настройки отладки обновлены",

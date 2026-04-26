@@ -1,9 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
+import { copyToClipboard } from '@/utils/clipboard';
+import type { ModelInfo } from '@/utils/models';
 import styles from './OpenAICompatSyncModal.module.scss';
 
 export type SyncStep = 'select' | 'alias';
@@ -19,6 +21,7 @@ interface OpenAICompatSyncModalProps {
   step: SyncStep;
   lookupLoading: boolean;
   saving: boolean;
+  configuredModels: ModelInfo[];
   onClose: () => void;
   onBack: () => void;
   onSearchChange: (value: string) => void;
@@ -32,6 +35,7 @@ interface OpenAICompatSyncModalProps {
 
 export function OpenAICompatSyncModal(props: OpenAICompatSyncModalProps) {
   const { t } = useTranslation();
+  const [refSearch, setRefSearch] = useState('');
 
   const filteredModels = useMemo(() => {
     const keyword = props.search.trim().toLowerCase();
@@ -47,10 +51,29 @@ export function OpenAICompatSyncModal(props: OpenAICompatSyncModalProps) {
     [props.selectedModelNames]
   );
 
+  const filteredRefModels = useMemo(() => {
+    const keyword = refSearch.trim().toLowerCase();
+    if (!keyword) return props.configuredModels;
+    return props.configuredModels.filter((m) => {
+      const name = (m.name || '').toLowerCase();
+      const alias = (m.alias || '').toLowerCase();
+      return name.includes(keyword) || alias.includes(keyword);
+    });
+  }, [props.configuredModels, refSearch]);
+
   const canGoNext = props.selectedModelNames.size > 0 && !props.lookupLoading;
   const canConfirm =
     selectedNames.length > 0 &&
     selectedNames.every((name) => (props.aliasDrafts[name] ?? '').trim().length > 0);
+
+  const handleCopyModel = async (text: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      // brief visual feedback via title attribute on the button is handled by CSS :active
+    }
+  };
+
+  const modalWidth = props.step === 'alias' ? 1020 : 760;
 
   return (
     <Modal
@@ -61,7 +84,7 @@ export function OpenAICompatSyncModal(props: OpenAICompatSyncModalProps) {
           ? t('system_info.sync_models_modal_title_select', { provider: props.providerName })
           : t('system_info.sync_models_modal_title_alias', { provider: props.providerName })
       }
-      width={760}
+      width={modalWidth}
       footer={
         props.step === 'select' ? (
           <>
@@ -123,27 +146,64 @@ export function OpenAICompatSyncModal(props: OpenAICompatSyncModalProps) {
           </div>
         </div>
       ) : (
-        <div className={styles.aliasList}>
-          {selectedNames.map((name) => {
-            const matched = props.matchedModelNames.has(name);
-            return (
-              <div key={name} className={styles.aliasRow}>
-                <div className={styles.aliasMeta}>
-                  <div className={styles.modelName}>{name}</div>
-                  <div className={matched ? styles.matchedBadge : styles.unmatchedBadge}>
-                    {matched
-                      ? t('system_info.sync_models_alias_matched')
-                      : t('system_info.sync_models_alias_manual')}
+        <div className={styles.aliasStep}>
+          <div className={styles.aliasEditPanel}>
+            <div className={styles.aliasList}>
+              {selectedNames.map((name) => {
+                const matched = props.matchedModelNames.has(name);
+                return (
+                  <div key={name} className={styles.aliasRow}>
+                    <div className={styles.aliasMeta}>
+                      <div className={styles.modelName}>{name}</div>
+                      <div className={matched ? styles.matchedBadge : styles.unmatchedBadge}>
+                        {matched
+                          ? t('system_info.sync_models_alias_matched')
+                          : t('system_info.sync_models_alias_manual')}
+                      </div>
+                    </div>
+                    <Input
+                      value={props.aliasDrafts[name] ?? ''}
+                      onChange={(event) => props.onAliasChange(name, event.currentTarget.value)}
+                      placeholder={t('system_info.sync_models_alias_placeholder')}
+                    />
                   </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className={styles.referencePanel}>
+            <div className={styles.refHeader}>
+              <span className={styles.refTitle}>{t('system_info.sync_models_ref_title')}</span>
+            </div>
+            <Input
+              value={refSearch}
+              onChange={(event) => setRefSearch(event.currentTarget.value)}
+              placeholder={t('system_info.sync_models_ref_search_placeholder')}
+            />
+            <div className={styles.refList}>
+              {filteredRefModels.map((model) => (
+                <div key={model.name} className={styles.refModelRow}>
+                  <div className={styles.refModelInfo}>
+                    <span className={styles.refModelName}>{model.name}</span>
+                    {model.alias && <span className={styles.refModelAlias}>{model.alias}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.copyBtn}
+                    onClick={() => handleCopyModel(model.name)}
+                    title={t('system_info.sync_models_copy')}
+                    aria-label={t('system_info.sync_models_copy')}
+                  >
+                    {t('system_info.sync_models_copy')}
+                  </button>
                 </div>
-                <Input
-                  value={props.aliasDrafts[name] ?? ''}
-                  onChange={(event) => props.onAliasChange(name, event.currentTarget.value)}
-                  placeholder={t('system_info.sync_models_alias_placeholder')}
-                />
-              </div>
-            );
-          })}
+              ))}
+              {filteredRefModels.length === 0 && (
+                <div className={styles.refEmpty}>{t('system_info.sync_models_ref_empty')}</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </Modal>

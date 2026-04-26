@@ -1537,7 +1537,11 @@
     "sync_models_alias_matched": "Auto matched",
     "sync_models_alias_manual": "Manual input",
     "sync_models_modal_title_select": "Select models to sync - {{provider}}",
-    "sync_models_modal_title_alias": "Confirm model aliases - {{provider}}"
+    "sync_models_modal_title_alias": "Confirm model aliases - {{provider}}",
+    "sync_models_ref_title": "Configured Models",
+    "sync_models_ref_search_placeholder": "Search models...",
+    "sync_models_ref_empty": "No matching models",
+    "sync_models_copy": "Copy"
   },
   "notification": {
     "debug_updated": "Debug settings updated",

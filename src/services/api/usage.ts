@@ -5,6 +5,7 @@
 import { apiClient } from './client';
 import {
   computeKeyStats,
+  normalizeUsageSourceId,
   type KeyStats,
   type UsageDetail,
   type UsageTimeRange,
@@ -217,7 +218,7 @@ export const requestEventToUsageDetail = (event: RequestEventItemPayload): Usage
 
   return {
     timestamp,
-    source: String(event.source ?? '').trim(),
+    source: normalizeUsageSourceId(event.source),
     auth_index: String(event.auth_index ?? '').trim(),
     request_id: String(event.request_id ?? '').trim(),
     request_log_ref: String(event.request_log_ref ?? '').trim(),

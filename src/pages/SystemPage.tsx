@@ -406,9 +406,26 @@ export function SystemPage() {
     setLoadingRawModels(true);
     try {
       const res = await providersApi.previewOpenAICompatModels(selectedProvider);
-      setRawModels(res.models ?? []);
-      setSelectedModelNames(new Set());
-      setAliasDrafts({});
+      const fetchedModels = res.models ?? [];
+      setRawModels(fetchedModels);
+
+      // Pre-select models that are already configured AND still available in the fetched list
+      const fetchedSet = new Set(fetchedModels);
+      const providerConfig = config?.openaiCompatibility?.find((p) => p.name === selectedProvider);
+      const configuredModels = providerConfig?.models ?? [];
+      const preselectedNames = new Set<string>();
+      const preselectedAliases: Record<string, string> = {};
+      configuredModels.forEach((m) => {
+        if (fetchedSet.has(m.name)) {
+          preselectedNames.add(m.name);
+          if (m.alias) {
+            preselectedAliases[m.name] = m.alias;
+          }
+        }
+      });
+
+      setSelectedModelNames(preselectedNames);
+      setAliasDrafts(preselectedAliases);
       setMatchedModelNames(new Set());
       setSyncSearch('');
       setSyncModalStep('select');
@@ -435,7 +452,7 @@ export function SystemPage() {
       const matchedSet = new Set<string>();
 
       names.forEach((name) => {
-        nextDrafts[name] = '';
+        nextDrafts[name] = aliasDrafts[name] ?? '';
       });
 
       (res.matched ?? []).forEach((item) => {
@@ -473,6 +490,7 @@ export function SystemPage() {
       });
       showNotification(t('system_info.sync_models_success'), 'success');
       resetSyncModal();
+      await fetchConfig();
       await fetchModels({ forceRefresh: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -634,6 +652,7 @@ export function SystemPage() {
           step={syncModalStep}
           lookupLoading={lookupLoading}
           saving={syncingModels}
+          configuredModels={models}
           onClose={resetSyncModal}
           onBack={() => setSyncModalStep('select')}
           onSearchChange={setSyncSearch}

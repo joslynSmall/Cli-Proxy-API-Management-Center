@@ -30,6 +30,7 @@ describe('OpenAICompatSyncModal', () => {
         onAliasChange={vi.fn()}
         onConfirm={vi.fn()}
         search="glm"
+        configuredModels={[]}
       />
     );
 
@@ -69,6 +70,7 @@ describe('OpenAICompatSyncModal', () => {
         onAliasChange={vi.fn()}
         onConfirm={vi.fn()}
         search=""
+        configuredModels={[]}
       />
     );
 

@@ -1537,7 +1537,11 @@
     "sync_models_alias_matched": "自动匹配",
     "sync_models_alias_manual": "手动填写",
     "sync_models_modal_title_select": "选择要同步的模型 - {{provider}}",
-    "sync_models_modal_title_alias": "确认模型 alias - {{provider}}"
+    "sync_models_modal_title_alias": "确认模型 alias - {{provider}}",
+    "sync_models_ref_title": "已配置模型参考",
+    "sync_models_ref_search_placeholder": "搜索模型...",
+    "sync_models_ref_empty": "无匹配模型",
+    "sync_models_copy": "复制"
   },
   "notification": {
     "debug_updated": "调试设置已更新",
