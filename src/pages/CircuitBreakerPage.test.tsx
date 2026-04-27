@@ -7,6 +7,18 @@ import { useAuthStore, useNotificationStore } from '@/stores';
 import type { CircuitBreakerDeletionItem } from '@/services/api/circuitBreaker';
 import { circuitBreakerApi } from '@/services/api/circuitBreaker';
 
+vi.mock('@/components/usage', () => ({
+  ErrorEventsInsightsContent: ({
+    fixedFilters,
+  }: {
+    fixedFilters?: { provider?: string; authId?: string; model?: string };
+  }) => (
+    <div data-testid="error-events-insights">
+      {fixedFilters?.provider || ''}|{fixedFilters?.authId || ''}|{fixedFilters?.model || ''}
+    </div>
+  ),
+}));
+
 vi.mock('@/services/api/circuitBreaker', () => ({
   circuitBreakerApi: {
     list: vi.fn(),
@@ -24,6 +36,11 @@ const buildBreakerMap = () => ({
   'auth-a': {
     'gpt-4.1': {
       provider: 'openai',
+      errorInsightFilters: {
+        provider: 'openai',
+        authId: 'auth-a-insight',
+        model: 'gpt-4.1-insight',
+      },
       state: 'open' as const,
       failureCount: 3,
       lastFailure: '2026-04-25T10:00:00Z',
@@ -32,6 +49,27 @@ const buildBreakerMap = () => ({
   },
   'auth-b': {
     'claude-3.7-sonnet': {
+      provider: 'anthropic',
+      state: 'half-open' as const,
+      failureCount: 1,
+      lastFailure: '2026-04-25T11:00:00Z',
+      recoveryAt: '',
+    },
+  },
+});
+
+const buildBreakerMapWithMissingFields = () => ({
+  'auth-a': {
+    'gpt-4.1': {
+      provider: '',
+      state: 'open' as const,
+      failureCount: 3,
+      lastFailure: '2026-04-25T10:00:00Z',
+      recoveryAt: '2026-04-25T10:30:00Z',
+    },
+  },
+  'auth-b': {
+    '': {
       provider: 'anthropic',
       state: 'half-open' as const,
       failureCount: 1,
@@ -101,15 +139,16 @@ describe('CircuitBreakerPage', () => {
     );
   });
 
-  it('renders breaker tab by default with provider groups and shows deletion page after manual switch', async () => {
+  it('renders breaker tab with open filter by default and shows deletion page after manual switch', async () => {
     const user = userEvent.setup();
 
     render(<CircuitBreakerPage />);
 
     expect(await screen.findByRole('tab', { name: '熔断状态' })).toHaveAttribute('aria-selected', 'true');
-    expect(await screen.findByText('openai')).toBeInTheDocument();
-    expect(await screen.findByText('anthropic')).toBeInTheDocument();
-    expect(screen.getByText('claude-3.7-sonnet')).toBeInTheDocument();
+    expect((await screen.findAllByText('gpt-4.1')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('claude-3.7-sonnet')).not.toBeInTheDocument();
+    expect(screen.getAllByText('openai').length).toBeGreaterThan(0);
+    expect(screen.queryByText('anthropic')).not.toBeInTheDocument();
     expect(screen.queryByText('meta/llama-3.1-70b-instruct')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: '待删除候选' }));
@@ -125,6 +164,70 @@ describe('CircuitBreakerPage', () => {
         pageSize: 20,
       });
     });
+  });
+
+  it('switches group-by from model to provider', async () => {
+    const user = userEvent.setup();
+
+    render(<CircuitBreakerPage />);
+
+    expect((await screen.findAllByText('gpt-4.1')).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: '全部' }));
+    await user.click(screen.getByRole('button', { name: '按提供商' }));
+    expect((await screen.findAllByText('openai')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('anthropic').length).toBeGreaterThan(0);
+  });
+
+  it('opens error insights modal from breaker row', async () => {
+    const user = userEvent.setup();
+
+    render(<CircuitBreakerPage />);
+
+    expect((await screen.findAllByText('gpt-4.1')).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: '错误洞察' }));
+
+    expect(await screen.findByText('错误洞察 · openai / auth-a-insight / gpt-4.1-insight')).toBeInTheDocument();
+    expect(screen.getByTestId('error-events-insights')).toHaveTextContent(
+      'openai|auth-a-insight|gpt-4.1-insight'
+    );
+  });
+
+  it('falls back to breaker row fields when error insight filters are missing', async () => {
+    const user = userEvent.setup();
+
+    mockedCircuitBreakerApi.list.mockResolvedValueOnce({
+      'auth-a': {
+        'gpt-4.1': {
+          provider: 'openai',
+          state: 'open' as const,
+          failureCount: 3,
+          lastFailure: '2026-04-25T10:00:00Z',
+          recoveryAt: '2026-04-25T10:30:00Z',
+        },
+      },
+    });
+
+    render(<CircuitBreakerPage />);
+
+    expect((await screen.findAllByText('gpt-4.1')).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: '错误洞察' }));
+
+    expect(await screen.findByText('错误洞察 · openai / auth-a / gpt-4.1')).toBeInTheDocument();
+    expect(screen.getByTestId('error-events-insights')).toHaveTextContent('openai|auth-a|gpt-4.1');
+  });
+
+  it('shows unknown fallback labels for missing provider/model', async () => {
+    mockedCircuitBreakerApi.list.mockResolvedValueOnce(buildBreakerMapWithMissingFields());
+
+    render(<CircuitBreakerPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: '全部' }));
+    expect(await screen.findByText('未知模型')).toBeInTheDocument();
+    expect(screen.getAllByText('未知提供商').length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('button', { name: '按提供商' }));
+    expect((await screen.findAllByText('未知提供商')).length).toBeGreaterThan(0);
   });
 
   it('switches deletion status filter independently and keeps history rows read-only', async () => {

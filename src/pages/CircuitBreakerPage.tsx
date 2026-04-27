@@ -2,23 +2,27 @@
  * Circuit Breaker management page
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import {
   type CircuitBreakerDeletionItem,
+  type CircuitBreakerErrorInsightFilters,
   type CircuitBreakerDeletionStatus,
   circuitBreakerApi,
 } from '@/services/api/circuitBreaker';
 import { useAuthStore, useNotificationStore } from '@/stores';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { ErrorEventsInsightsContent } from '@/components/usage';
 import styles from './CircuitBreakerPage.module.scss';
 
 interface CircuitItem {
   provider?: string;
   clientId: string;
   modelId: string;
+  errorInsightFilters?: CircuitBreakerErrorInsightFilters;
   state: 'closed' | 'open' | 'half-open';
   failureCount: number;
   lastFailure: string;
@@ -26,10 +30,12 @@ interface CircuitItem {
 }
 
 type BreakerFilter = 'all' | 'open' | 'half-open';
+type BreakerGroupBy = 'model' | 'provider';
 type DeletionFilter = CircuitBreakerDeletionStatus | 'all';
 type CircuitBreakerTab = 'breaker' | 'deletion';
-interface CircuitProviderGroup {
-  provider: string;
+interface CircuitGroup {
+  groupKey: string;
+  groupLabel: string;
   items: CircuitItem[];
 }
 
@@ -44,7 +50,8 @@ export function CircuitBreakerPage() {
   const [breakerLoading, setBreakerLoading] = useState(true);
   const [breakerError, setBreakerError] = useState('');
   const [breakerActionLoading, setBreakerActionLoading] = useState<string | null>(null);
-  const [breakerFilter, setBreakerFilter] = useState<BreakerFilter>('all');
+  const [breakerFilter, setBreakerFilter] = useState<BreakerFilter>('open');
+  const [breakerGroupBy, setBreakerGroupBy] = useState<BreakerGroupBy>('model');
   const [activeTab, setActiveTab] = useState<CircuitBreakerTab>('breaker');
 
   const [deletionItems, setDeletionItems] = useState<CircuitBreakerDeletionItem[]>([]);
@@ -55,6 +62,8 @@ export function CircuitBreakerPage() {
   const [deletionPage, setDeletionPage] = useState(1);
   const [deletionTotal, setDeletionTotal] = useState(0);
   const [deletionPageSize, setDeletionPageSize] = useState(DELETION_PAGE_SIZE);
+  const [insightTarget, setInsightTarget] = useState<CircuitItem | null>(null);
+  const errorInsightsRefreshRef = useRef<(() => Promise<void>) | null>(null);
 
   const disableControls = connectionStatus !== 'connected';
 
@@ -105,8 +114,12 @@ export function CircuitBreakerPage() {
   }, [deletionFilter, deletionPage, t]);
 
   const handleHeaderRefresh = useCallback(async () => {
-    await Promise.allSettled([loadBreakers(), loadDeletionCandidates()]);
-  }, [loadBreakers, loadDeletionCandidates]);
+    const jobs: Array<Promise<void>> = [loadBreakers(), loadDeletionCandidates()];
+    if (insightTarget && errorInsightsRefreshRef.current) {
+      jobs.push(errorInsightsRefreshRef.current());
+    }
+    await Promise.allSettled(jobs);
+  }, [insightTarget, loadBreakers, loadDeletionCandidates]);
 
   useHeaderRefresh(handleHeaderRefresh);
 
@@ -250,19 +263,28 @@ export function CircuitBreakerPage() {
   const openCount = breakerItems.filter((item) => item.state === 'open').length;
   const halfOpenCount = breakerItems.filter((item) => item.state === 'half-open').length;
   const deletionTotalPages = Math.max(1, Math.ceil(deletionTotal / Math.max(1, deletionPageSize)));
-  const breakerGroups = useMemo<CircuitProviderGroup[]>(() => {
+  const breakerGroups = useMemo<CircuitGroup[]>(() => {
     const groups = new Map<string, CircuitItem[]>();
     filteredBreakerItems.forEach((item) => {
-      const providerKey = (item.provider || t('circuit_breaker.provider_unknown')).trim();
-      const current = groups.get(providerKey) ?? [];
+      const rawKey = breakerGroupBy === 'provider' ? item.provider : item.modelId;
+      const fallbackLabel =
+        breakerGroupBy === 'provider'
+          ? t('circuit_breaker.provider_unknown')
+          : t('circuit_breaker.model_unknown');
+      const groupKey = (rawKey || fallbackLabel).trim();
+      const current = groups.get(groupKey) ?? [];
       current.push(item);
-      groups.set(providerKey, current);
+      groups.set(groupKey, current);
     });
 
     return Array.from(groups.entries())
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([provider, items]) => ({ provider, items }));
-  }, [filteredBreakerItems, t]);
+      .map(([groupKey, items]) => ({
+        groupKey,
+        groupLabel: groupKey,
+        items,
+      }));
+  }, [breakerGroupBy, filteredBreakerItems, t]);
 
   const breakerBadge = (state: CircuitItem['state']) => {
     const badges: Record<string, { label: string; className: string }> = {
@@ -297,6 +319,22 @@ export function CircuitBreakerPage() {
 
   const renderDeletionTime = (item: CircuitBreakerDeletionItem) =>
     formatTime(item.action_at || item.updated_at || item.opened_at || item.created_at);
+
+  const getInsightFilters = useCallback(
+    (item: CircuitItem): Required<Pick<CircuitBreakerErrorInsightFilters, 'provider' | 'authId' | 'model'>> => ({
+      provider: item.errorInsightFilters?.provider || item.provider || '',
+      authId: item.errorInsightFilters?.authId || item.clientId,
+      model: item.errorInsightFilters?.model || item.modelId,
+    }),
+    []
+  );
+
+  const closeErrorInsights = useCallback(() => {
+    setInsightTarget(null);
+  }, []);
+  const handleErrorInsightsRefreshReady = useCallback((refresh: () => Promise<void>) => {
+    errorInsightsRefreshRef.current = refresh;
+  }, []);
 
   return (
     <div className={styles.container}>
@@ -348,22 +386,43 @@ export function CircuitBreakerPage() {
               <div className={styles.cardActions}>
                 <div className={styles.filterTabs}>
                   <button
+                    type="button"
                     className={`${styles.filterTab} ${breakerFilter === 'all' ? styles.filterTabActive : ''}`}
                     onClick={() => setBreakerFilter('all')}
                   >
                     {t('circuit_breaker.filter_all')}
                   </button>
                   <button
+                    type="button"
                     className={`${styles.filterTab} ${breakerFilter === 'open' ? styles.filterTabActive : ''}`}
                     onClick={() => setBreakerFilter('open')}
                   >
                     {t('circuit_breaker.filter_open')}
                   </button>
                   <button
+                    type="button"
                     className={`${styles.filterTab} ${breakerFilter === 'half-open' ? styles.filterTabActive : ''}`}
                     onClick={() => setBreakerFilter('half-open')}
                   >
                     {t('circuit_breaker.filter_half_open')}
+                  </button>
+                </div>
+                <div className={styles.filterTabs} aria-label={t('circuit_breaker.group_by_label')}>
+                  <button
+                    type="button"
+                    aria-pressed={breakerGroupBy === 'model'}
+                    className={`${styles.filterTab} ${breakerGroupBy === 'model' ? styles.filterTabActive : ''}`}
+                    onClick={() => setBreakerGroupBy('model')}
+                  >
+                    {t('circuit_breaker.group_by_model')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={breakerGroupBy === 'provider'}
+                    className={`${styles.filterTab} ${breakerGroupBy === 'provider' ? styles.filterTabActive : ''}`}
+                    onClick={() => setBreakerGroupBy('provider')}
+                  >
+                    {t('circuit_breaker.group_by_provider')}
                   </button>
                 </div>
                 <Button
@@ -387,13 +446,13 @@ export function CircuitBreakerPage() {
             ) : (
               <div className={styles.groupList}>
                 {breakerGroups.map((group) => (
-                  <section key={group.provider} className={styles.groupSection}>
+                  <section key={group.groupKey} className={styles.groupSection}>
                     <div className={styles.groupHeader}>
                       <div className={styles.groupHeaderMain}>
                         <div className={styles.groupTitleRow}>
-                          <h2 className={styles.groupTitle}>{group.provider}</h2>
+                          <h2 className={styles.groupTitle}>{group.groupLabel}</h2>
                           <span className={styles.groupCount}>
-                            {t('circuit_breaker.provider_group_count', { count: group.items.length })}
+                            {t('circuit_breaker.group_count', { count: group.items.length })}
                           </span>
                         </div>
                       </div>
@@ -423,6 +482,7 @@ export function CircuitBreakerPage() {
                           <thead>
                             <tr>
                               <th>{t('circuit_breaker.col_client')}</th>
+                              <th>{t('circuit_breaker.col_provider')}</th>
                               <th>{t('circuit_breaker.col_model')}</th>
                               <th>{t('circuit_breaker.col_state')}</th>
                               <th>{t('circuit_breaker.col_failure_count')}</th>
@@ -438,11 +498,14 @@ export function CircuitBreakerPage() {
                               const openActionKey = `${item.clientId}:${item.modelId}:open`;
                               return (
                                 <tr
-                                  key={`${group.provider}:${item.clientId}:${item.modelId}`}
+                                  key={`${group.groupKey}:${item.clientId}:${item.modelId}`}
                                   className={item.state === 'open' ? styles.rowOpen : ''}
                                 >
                                   <td className={styles.cellClient}>
                                     <code>{item.clientId}</code>
+                                  </td>
+                                  <td className={styles.cellProvider}>
+                                    <code>{item.provider || t('circuit_breaker.provider_unknown')}</code>
                                   </td>
                                   <td className={styles.cellModel}>
                                     <code>{item.modelId}</code>
@@ -472,6 +535,13 @@ export function CircuitBreakerPage() {
                                         onClick={() => handleOpen(item)}
                                       >
                                         {t('circuit_breaker.btn_open')}
+                                      </Button>
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => setInsightTarget(item)}
+                                      >
+                                        {t('circuit_breaker.btn_error_insights')}
                                       </Button>
                                     </div>
                                   </td>
@@ -670,6 +740,31 @@ export function CircuitBreakerPage() {
           )}
         </Card>
       )}
+
+      <Modal
+        open={Boolean(insightTarget)}
+        onClose={closeErrorInsights}
+        title={
+          insightTarget
+            ? t('circuit_breaker.error_insights_title', {
+                provider: getInsightFilters(insightTarget).provider || t('circuit_breaker.provider_unknown'),
+                authId: getInsightFilters(insightTarget).authId,
+                model: getInsightFilters(insightTarget).model,
+              })
+            : t('circuit_breaker.error_insights_title_empty')
+        }
+        width={1240}
+      >
+        {insightTarget && (
+          <div className={styles.errorInsightsModalBody}>
+            <ErrorEventsInsightsContent
+              fixedFilters={getInsightFilters(insightTarget)}
+              onRefreshReady={handleErrorInsightsRefreshReady}
+              refreshDisabled={disableControls}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

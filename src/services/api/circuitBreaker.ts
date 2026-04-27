@@ -4,12 +4,19 @@
 
 import { apiClient } from './client';
 
+export interface CircuitBreakerErrorInsightFilters {
+  provider?: string;
+  authId?: string;
+  model?: string;
+}
+
 export interface CircuitBreakerStatus {
   provider?: string;
   state: 'closed' | 'open' | 'half-open';
   failureCount: number;
   lastFailure: string;
   recoveryAt?: string;
+  errorInsightFilters?: CircuitBreakerErrorInsightFilters;
 }
 
 export type CircuitBreakerMap = Record<string, Record<string, CircuitBreakerStatus>>;

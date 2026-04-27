@@ -64,6 +64,64 @@
   font-size: 12px;
 }
 
+.insightsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.insightsTabs {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  align-items: center;
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: $radius-md;
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+
+  @include mobile {
+    width: 100%;
+  }
+}
+
+.insightTab {
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color $transition-fast,
+    background-color $transition-fast,
+    border-color $transition-fast,
+    box-shadow $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+    background-color: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+  }
+}
+
+.insightTabActive {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--border-hover) 70%, transparent);
+  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
+}
+
 .hint {
   color: var(--text-secondary);
   font-size: 12px;
@@ -872,29 +930,40 @@
   flex-wrap: wrap;
   align-items: flex-end;
   margin-bottom: $spacing-sm;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: $radius-lg;
 }
 
 .requestEventsFilterItem {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 180px;
+  min-width: 140px;
+  flex: 1;
+
+  @include mobile {
+    min-width: 100%;
+  }
 }
 
 .requestEventsFilterLabel {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .requestEventsSelect {
-  min-width: 180px;
+  min-width: 140px;
 }
 
 .requestEventsToggleRow {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
+  min-height: 32px;
 }
 
 .requestEventsMeta {

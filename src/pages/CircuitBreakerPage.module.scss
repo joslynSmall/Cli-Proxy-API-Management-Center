@@ -364,6 +364,7 @@
 }
 
 .cellClient code,
+.cellProvider code,
 .cellModel code,
 .cellStack code {
   font-size: 12px;
@@ -463,4 +464,10 @@
   font-size: 13px;
   color: var(--text-secondary);
   text-align: center;
+}
+
+.errorInsightsModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
 }

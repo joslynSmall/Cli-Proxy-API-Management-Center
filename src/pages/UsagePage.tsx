@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Chart as ChartJS,
@@ -12,6 +12,7 @@ import {
   Filler
 } from 'chart.js';
 import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -29,6 +30,7 @@ import {
   TokenBreakdownChart,
   CostTrendChart,
   ServiceHealthCard,
+  ErrorEventsInsightsContent,
   useUsageData,
   useSparklines,
   useChartData
@@ -84,6 +86,8 @@ const HOUR_WINDOW_BY_TIME_RANGE: Record<Exclude<UsageTimeRange, 'all'>, number> 
   '24h': 24,
   '7d': 7 * 24
 };
+
+type InsightsTab = 'request-events' | 'error-events';
 
 const isUsageTimeRange = (value: unknown): value is UsageTimeRange =>
   value === '7h' || value === '24h' || value === '7d' || value === 'all';
@@ -174,6 +178,7 @@ export function UsagePage() {
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const isDark = resolvedTheme === 'dark';
   const config = useConfigStore((state) => state.config);
+  const errorEventsRefreshRef = useRef<(() => Promise<void>) | null>(null);
 
   // Data hook
   const {
@@ -193,13 +198,22 @@ export function UsagePage() {
     importing
   } = useUsageData();
 
-  useHeaderRefresh(loadUsage);
+  const loadUsageWithErrorEvents = useCallback(async () => {
+    const jobs: Array<Promise<void>> = [loadUsage()];
+    if (errorEventsRefreshRef.current) {
+      jobs.push(errorEventsRefreshRef.current());
+    }
+    await Promise.allSettled(jobs);
+  }, [loadUsage]);
+
+  useHeaderRefresh(loadUsageWithErrorEvents);
 
   // Chart lines state
   const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(loadAutoRefreshEnabled);
   const [autoRefreshIntervalMs, setAutoRefreshIntervalMs] = useState<number>(loadAutoRefreshInterval);
+  const [activeInsightsTab, setActiveInsightsTab] = useState<InsightsTab>('request-events');
 
   const timeRangeOptions = useMemo(
     () =>
@@ -234,6 +248,9 @@ export function UsagePage() {
   }, []);
   const handleAutoRefreshIntervalChange = useCallback((value: number) => {
     setAutoRefreshIntervalMs(normalizeAutoRefreshInterval(value));
+  }, []);
+  const handleErrorEventsRefreshReady = useCallback((refresh: () => Promise<void>) => {
+    errorEventsRefreshRef.current = refresh;
   }, []);
 
   useEffect(() => {
@@ -361,7 +378,7 @@ export function UsagePage() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void loadUsage().catch(() => {})}
+            onClick={() => void loadUsageWithErrorEvents().catch(() => {})}
             disabled={loading || exporting || importing}
           >
             {loading ? t('common.loading') : t('usage_stats.refresh')}
@@ -398,22 +415,54 @@ export function UsagePage() {
         }}
       />
 
-      <RequestEventsDetailsCard
-        usageDetails={filteredUsageDetails}
-        loading={loading}
-        geminiKeys={config?.geminiApiKeys || []}
-        claudeConfigs={config?.claudeApiKeys || []}
-        codexConfigs={config?.codexApiKeys || []}
-        vertexConfigs={config?.vertexApiKeys || []}
-        openaiProviders={config?.openaiCompatibility || []}
-        autoRefreshEnabled={autoRefreshEnabled}
-        autoRefreshInterval={String(autoRefreshIntervalMs)}
-        autoRefreshIntervalOptions={autoRefreshIntervalOptions}
-        autoRefreshPaused={loading || exporting || importing}
-        timeRange={timeRange}
-        onAutoRefreshChange={setAutoRefreshEnabled}
-        onAutoRefreshIntervalChange={handleAutoRefreshIntervalChange}
-      />
+      <section className={styles.insightsSection}>
+        <div className={styles.insightsTabs} role="tablist" aria-label={t('error_events.usage_card_title')}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeInsightsTab === 'request-events'}
+            className={`${styles.insightTab} ${activeInsightsTab === 'request-events' ? styles.insightTabActive : ''}`}
+            onClick={() => setActiveInsightsTab('request-events')}
+          >
+            {t('usage_stats.insights_tab_request_events')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeInsightsTab === 'error-events'}
+            className={`${styles.insightTab} ${activeInsightsTab === 'error-events' ? styles.insightTabActive : ''}`}
+            onClick={() => setActiveInsightsTab('error-events')}
+          >
+            {t('usage_stats.insights_tab_error_events')}
+          </button>
+        </div>
+
+        {activeInsightsTab === 'request-events' ? (
+          <RequestEventsDetailsCard
+            usageDetails={filteredUsageDetails}
+            loading={loading}
+            geminiKeys={config?.geminiApiKeys || []}
+            claudeConfigs={config?.claudeApiKeys || []}
+            codexConfigs={config?.codexApiKeys || []}
+            vertexConfigs={config?.vertexApiKeys || []}
+            openaiProviders={config?.openaiCompatibility || []}
+            autoRefreshEnabled={autoRefreshEnabled}
+            autoRefreshInterval={String(autoRefreshIntervalMs)}
+            autoRefreshIntervalOptions={autoRefreshIntervalOptions}
+            autoRefreshPaused={loading || exporting || importing}
+            timeRange={timeRange}
+            onAutoRefreshChange={setAutoRefreshEnabled}
+            onAutoRefreshIntervalChange={handleAutoRefreshIntervalChange}
+          />
+        ) : (
+          <Card title={t('error_events.usage_card_title')}>
+            <ErrorEventsInsightsContent
+              onRefreshReady={handleErrorEventsRefreshReady}
+              refreshDisabled={loading || exporting || importing}
+            />
+          </Card>
+        )}
+      </section>
 
       {/* Chart Line Selection */}
       <ChartLineSelector

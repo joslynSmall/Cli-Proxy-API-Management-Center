@@ -1,0 +1,745 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  margin-bottom: $spacing-sm;
+}
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.filterBarCompact {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: $radius-lg;
+}
+
+.filterToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: $radius-md;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all $transition-fast;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.filterToggleActive {
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--bg-secondary));
+  color: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 40%, var(--border-color));
+}
+
+.filterToggleBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: $radius-full;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.filterToggleIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform $transition-fast;
+}
+
+.filterToggleIconRotated {
+  transform: rotate(180deg);
+}
+
+.filterPills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.filterPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 30%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  max-width: 220px;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.filterPillClear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color $transition-fast;
+
+  &:hover {
+    color: var(--danger-color);
+  }
+}
+
+.filterPanel {
+  display: grid;
+  gap: $spacing-sm;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 $radius-md $radius-md;
+  animation: filterPanelSlideDown 200ms ease;
+
+  @include tablet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes filterPanelSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  min-width: 0;
+
+  input,
+  button {
+    height: 32px;
+    font-size: 12px;
+  }
+}
+
+.filterLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-xs;
+}
+
+.filterPanel .actions {
+  grid-column: 1 / -1;
+}
+
+.fixedHint {
+  margin-bottom: $spacing-sm;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.summaryStrip {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-sm;
+  padding: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  border-radius: $radius-lg;
+}
+
+.summaryStripHeader {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.summaryStripTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.summaryStripTotal {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.summaryCards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $spacing-sm;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.summaryCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+  border-radius: $radius-md;
+}
+
+.summaryCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.summaryCardTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.summaryCardTotal {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.summaryCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summaryCardRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: $radius-sm;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color $transition-fast, border-color $transition-fast;
+
+  &:hover {
+    background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary-color) 40%, var(--border-color));
+  }
+}
+
+.summaryCardRowActive {
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-secondary)) !important;
+  border-color: color-mix(in srgb, var(--primary-color) 30%, var(--border-color));
+}
+
+.summaryCardRowTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.summaryCardRowLabel {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.summaryCardRowCount {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.summaryCardBarTrack {
+  height: 4px;
+  background: color-mix(in srgb, var(--border-color) 50%, transparent);
+  border-radius: $radius-full;
+  overflow: hidden;
+}
+
+.summaryCardBarFill {
+  height: 100%;
+  background: var(--primary-color);
+  border-radius: $radius-full;
+  transition: width 300ms ease;
+  opacity: 0.7;
+}
+
+.summaryCardMore {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 2px 8px;
+  text-align: center;
+}
+
+.summaryScopeMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.summaryKey {
+  color: var(--text-secondary);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  word-break: break-all;
+}
+
+.summaryValue {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.errorBox {
+  margin-bottom: $spacing-sm;
+  padding: $spacing-sm;
+  border-radius: $radius-md;
+  border: 1px solid color-mix(in srgb, var(--danger-color) 70%, var(--border-color));
+  background: color-mix(in srgb, var(--danger-color) 8%, transparent);
+  color: var(--danger-color);
+  font-size: 13px;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+  margin-bottom: $spacing-xs;
+}
+
+.viewSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  background: var(--bg-secondary);
+}
+
+.viewSwitchButton {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: $radius-full;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent);
+  }
+}
+
+.viewSwitchButtonActive {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--primary-color) 16%, var(--bg-primary));
+}
+
+.metaText {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tableWrapper {
+  overflow: auto;
+  max-height: 460px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  margin-bottom: $spacing-sm;
+}
+
+.table {
+  width: 100%;
+  min-width: 1980px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+
+  th,
+  td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  tbody tr:hover {
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.colTime {
+  width: 150px;
+}
+
+.colProvider {
+  width: 110px;
+}
+
+.colAuth {
+  width: 260px;
+}
+
+.colModel {
+  width: 260px;
+}
+
+.colFailure {
+  width: 170px;
+}
+
+.colStatus {
+  width: 80px;
+}
+
+.colMessage {
+  width: 440px;
+}
+
+.colCircuit {
+  width: 130px;
+}
+
+.colProgress {
+  width: 180px;
+}
+
+.colRequest {
+  width: 170px;
+}
+
+.colAttempt {
+  width: 210px;
+}
+
+.colActions {
+  width: 170px;
+}
+
+.scopeTable {
+  min-width: 1260px;
+}
+
+.colScopeProvider {
+  width: 120px;
+}
+
+.colScopeAuth {
+  width: 280px;
+}
+
+.colScopeModel {
+  width: 300px;
+}
+
+.colScopeTotal {
+  width: 120px;
+}
+
+.colScopeCountable {
+  width: 140px;
+}
+
+.colScopeProgress {
+  width: 260px;
+}
+
+.colScopeLatest {
+  width: 170px;
+}
+
+.colScopeAction {
+  width: 150px;
+}
+
+.colActionsSticky {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.08);
+}
+
+thead .colActionsSticky {
+  z-index: 3;
+  background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+}
+
+.table td.cellTime {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table td.codeCell {
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  word-break: break-word;
+}
+
+.table td.messageCell {
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.table td.progressCell {
+  white-space: normal;
+  overflow: hidden;
+  line-height: 1.45;
+}
+
+.progressStatusRow {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-full;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  color: var(--text-secondary);
+}
+
+.statusPending {
+  border-color: color-mix(in srgb, var(--warning-color) 42%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 16%, transparent);
+  color: var(--warning-color);
+}
+
+.statusDeleted {
+  border-color: color-mix(in srgb, var(--success-color) 38%, transparent);
+  background: color-mix(in srgb, var(--success-color) 14%, transparent);
+  color: var(--success-color);
+}
+
+.statusFailed {
+  border-color: color-mix(in srgb, var(--danger-color) 42%, transparent);
+  background: color-mix(in srgb, var(--danger-color) 14%, transparent);
+  color: var(--danger-color);
+}
+
+.statusDismissed {
+  border-color: color-mix(in srgb, var(--text-tertiary) 42%, transparent);
+  background: color-mix(in srgb, var(--text-tertiary) 14%, transparent);
+  color: var(--text-secondary);
+}
+
+.circuitCountable {
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--success-color) 35%, transparent);
+  background: color-mix(in srgb, var(--success-color) 14%, transparent);
+  color: var(--success-color);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.circuitSkipped {
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--warning-color) 40%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 14%, transparent);
+  color: var(--warning-color);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.subText {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: normal;
+  word-break: break-all;
+}
+
+.actionColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+
+  @include mobile {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.requestLogModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 240px;
+}
+
+.requestLogMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.requestLogMetaLabel {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.requestLogMetaValue {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  color: var(--text-primary);
+}
+
+.requestLogPre {
+  margin: 0;
+  padding: 14px;
+  min-height: 320px;
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  border-radius: $radius-md;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+}
