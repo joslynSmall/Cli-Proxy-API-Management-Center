@@ -6,7 +6,9 @@ import type {
   PayloadParamEntry,
   PayloadParamValueType,
   PayloadRule,
+  ProviderRateLimitOverrideEntry,
   ReasoningIngressDefaultEntry,
+  VisualApiKeyEntry,
   VisualConfigValues,
   VisualConfigValidationErrors,
   PayloadParamValidationErrorCode,
@@ -39,32 +41,58 @@ function extractApiKeyValue(raw: unknown): string | null {
   return null;
 }
 
-function parseApiKeysText(raw: unknown): string {
-  if (!Array.isArray(raw)) return '';
-
-  const keys: string[] = [];
+function normalizeStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
   for (const item of raw) {
-    const key = extractApiKeyValue(item);
-    if (key) keys.push(key);
+    const value = String(item ?? '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
   }
-  return keys.join('\n');
+  return result;
 }
 
-function resolveApiKeysText(parsed: Record<string, unknown>): string {
-  if (Object.prototype.hasOwnProperty.call(parsed, 'api-keys')) {
-    return parseApiKeysText(parsed['api-keys']);
+function parseApiKeyEntries(raw: unknown): VisualApiKeyEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const entries: VisualApiKeyEntry[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < raw.length; index += 1) {
+    const item = raw[index];
+    const key = extractApiKeyValue(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const record = asRecord(item);
+    entries.push({
+      id: `api-key-entry-${index}-${key}`,
+      apiKey: key,
+      allowedSuppliers: normalizeStringList(
+        record?.['allowed-suppliers'] ?? record?.allowedSuppliers ?? record?.allowed_suppliers
+      ),
+      allowedModels: normalizeStringList(
+        record?.['allowed-models'] ?? record?.allowedModels ?? record?.allowed_models
+      ),
+    });
+  }
+  return entries;
+}
+
+function resolveApiKeyEntries(parsed: Record<string, unknown>): VisualApiKeyEntry[] {
+  if (Object.prototype.hasOwnProperty.call(parsed, 'api-key-entries')) {
+    return parseApiKeyEntries(parsed['api-key-entries']);
   }
 
   const auth = asRecord(parsed.auth);
   const providers = asRecord(auth?.providers);
   const configApiKeyProvider = asRecord(providers?.['config-api-key']);
-  if (!configApiKeyProvider) return '';
+  if (!configApiKeyProvider) return [];
 
   if (Object.prototype.hasOwnProperty.call(configApiKeyProvider, 'api-key-entries')) {
-    return parseApiKeysText(configApiKeyProvider['api-key-entries']);
+    return parseApiKeyEntries(configApiKeyProvider['api-key-entries']);
   }
 
-  return parseApiKeysText(configApiKeyProvider['api-keys']);
+  return [];
 }
 
 type YamlDocument = ReturnType<typeof parseDocument>;
@@ -190,6 +218,29 @@ function toPositiveIntegerString(raw: unknown): string {
   return truncated > 0 ? String(truncated) : '';
 }
 
+function normalizeProviderRateLimitScope(
+  raw: unknown
+): 'credential' | 'provider' | 'provider-model' {
+  if (typeof raw !== 'string') return 'credential';
+  const value = raw.trim().toLowerCase();
+  if (value === 'provider') return 'provider';
+  if (value === 'provider-model') return 'provider-model';
+  return 'credential';
+}
+
+function normalizeProviderRateLimitMode(raw: unknown): 'auto' | 'manual' {
+  if (typeof raw !== 'string') return 'auto';
+  return raw.trim().toLowerCase() === 'manual' ? 'manual' : 'auto';
+}
+
+function getFractionBetweenZeroAndOneError(value: string): 'fraction_between_0_1' | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return 'fraction_between_0_1';
+  return parsed > 0 && parsed < 1 ? undefined : 'fraction_between_0_1';
+}
+
 type CircuitBreakerOverrideFieldErrors = {
   failureThreshold?: 'positive_integer';
   recoveryTimeout?: 'positive_integer';
@@ -226,6 +277,31 @@ export function getVisualConfigValidationErrors(
     requestRetry: getNonNegativeIntegerError(values.requestRetry),
     maxRetryCredentials: getNonNegativeIntegerError(values.maxRetryCredentials),
     maxRetryInterval: getNonNegativeIntegerError(values.maxRetryInterval),
+    'providerRateLimit.rateLimit': getNonNegativeIntegerError(values.providerRateLimit.rateLimit),
+    'providerRateLimit.rateWindowSeconds': getNonNegativeIntegerError(
+      values.providerRateLimit.rateWindowSeconds
+    ),
+    'providerRateLimit.maxStreamConcurrency': getNonNegativeIntegerError(
+      values.providerRateLimit.maxStreamConcurrency
+    ),
+    'providerRateLimit.reactiveBaseDelayMs': getNonNegativeIntegerError(
+      values.providerRateLimit.reactiveBaseDelayMs
+    ),
+    'providerRateLimit.reactiveMaxDelaySeconds': getNonNegativeIntegerError(
+      values.providerRateLimit.reactiveMaxDelaySeconds
+    ),
+    'providerRateLimit.reactiveJitterMs': getNonNegativeIntegerError(
+      values.providerRateLimit.reactiveJitterMs
+    ),
+    'providerRateLimit.adaptiveDecreaseFactor': getFractionBetweenZeroAndOneError(
+      values.providerRateLimit.adaptiveDecreaseFactor
+    ),
+    'providerRateLimit.adaptiveMinRateLimit': getPositiveIntegerError(
+      values.providerRateLimit.adaptiveMinRateLimit
+    ),
+    'providerRateLimit.adaptivePersistDebounceSeconds': getPositiveIntegerError(
+      values.providerRateLimit.adaptivePersistDebounceSeconds
+    ),
     circuitBreakerAutoRemovalThreshold: getPositiveIntegerError(values.circuitBreakerAutoRemovalThreshold),
     'streaming.keepaliveSeconds': getNonNegativeIntegerError(values.streaming.keepaliveSeconds),
     'streaming.bootstrapRetries': getNonNegativeIntegerError(values.streaming.bootstrapRetries),
@@ -322,6 +398,80 @@ function deleteLegacyApiKeysProvider(doc: YamlDocument): void {
   deleteIfMapEmpty(doc, ['auth', 'providers', 'config-api-key']);
   deleteIfMapEmpty(doc, ['auth', 'providers']);
   deleteIfMapEmpty(doc, ['auth']);
+}
+
+function serializeApiKeyEntriesForYaml(
+  entries: VisualApiKeyEntry[]
+): Array<Record<string, unknown>> {
+  const output: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const apiKey = String(entry.apiKey ?? '').trim();
+    if (!apiKey || seen.has(apiKey)) continue;
+    seen.add(apiKey);
+    const item: Record<string, unknown> = {
+      'api-key': apiKey,
+    };
+    const suppliers = normalizeStringList(entry.allowedSuppliers);
+    if (suppliers.length > 0) {
+      item['allowed-suppliers'] = suppliers;
+    }
+    const models = normalizeStringList(entry.allowedModels);
+    if (models.length > 0) {
+      item['allowed-models'] = models;
+    }
+    output.push(item);
+  }
+  return output;
+}
+
+function parseProviderRateLimitOverrides(raw: unknown): ProviderRateLimitOverrideEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const items: ProviderRateLimitOverrideEntry[] = [];
+  raw.forEach((entry, index) => {
+    const record = asRecord(entry);
+    if (!record) return;
+    const provider = String(record.provider ?? '').trim();
+    const authId = String(record['auth-id'] ?? '').trim();
+    if (!provider && !authId) return;
+    items.push({
+      id: `provider-rate-limit-override-${index}`,
+      provider,
+      authId,
+      model: String(record.model ?? '').trim(),
+      mode: normalizeProviderRateLimitMode(record.mode),
+      scope: normalizeProviderRateLimitScope(record.scope),
+      rateLimit: String(record['rate-limit'] ?? ''),
+    });
+  });
+  return items;
+}
+
+function serializeProviderRateLimitOverrides(
+  entries: ProviderRateLimitOverrideEntry[]
+): Array<Record<string, unknown>> {
+  const output: Array<Record<string, unknown>> = [];
+  entries.forEach((entry) => {
+    const provider = String(entry.provider ?? '').trim();
+    const authId = String(entry.authId ?? '').trim();
+    const model = String(entry.model ?? '').trim();
+    if (!provider && !authId) return;
+    const item: Record<string, unknown> = {};
+    if (provider) item.provider = provider;
+    if (authId) item['auth-id'] = authId;
+    if (model) item.model = model;
+    if (entry.mode === 'manual') item.mode = 'manual';
+    if (entry.scope && entry.scope !== 'credential') item.scope = entry.scope;
+    const rateLimit = String(entry.rateLimit ?? '').trim();
+    if (/^\d+$/.test(rateLimit)) {
+      const parsed = Number(rateLimit);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        item['rate-limit'] = Math.trunc(parsed);
+      }
+    }
+    output.push(item);
+  });
+  return output;
 }
 
 function parsePayloadRules(rules: unknown): PayloadRule[] {
@@ -659,6 +809,7 @@ export function useVisualConfig() {
       const routing = asRecord(parsed.routing);
       const payload = asRecord(parsed.payload);
       const streaming = asRecord(parsed.streaming);
+      const providerRateLimit = asRecord(parsed['provider-rate-limit']);
       const circuitBreakerAutoRemoval = asRecord(
         parsed['circuit-breaker-auto-removal'] ?? parsed.circuitBreakerAutoRemoval
       );
@@ -687,7 +838,7 @@ export function useVisualConfig() {
             : '',
 
         authDir: typeof parsed['auth-dir'] === 'string' ? parsed['auth-dir'] : '',
-        apiKeysText: resolveApiKeysText(parsed),
+        apiKeyEntries: resolveApiKeyEntries(parsed),
 
         debug: Boolean(parsed.debug),
         commercialMode: Boolean(parsed['commercial-mode']),
@@ -700,6 +851,24 @@ export function useVisualConfig() {
         requestRetry: String(parsed['request-retry'] ?? ''),
         maxRetryCredentials: String(parsed['max-retry-credentials'] ?? ''),
         maxRetryInterval: String(parsed['max-retry-interval'] ?? ''),
+        providerRateLimit: {
+          enabled: normalizeBooleanDefaultTrue(providerRateLimit?.enabled),
+          scope: normalizeProviderRateLimitScope(providerRateLimit?.scope),
+          rateLimit: String(providerRateLimit?.['rate-limit'] ?? ''),
+          rateWindowSeconds: String(providerRateLimit?.['rate-window-seconds'] ?? ''),
+          maxStreamConcurrency: String(providerRateLimit?.['max-stream-concurrency'] ?? ''),
+          reactiveBaseDelayMs: String(providerRateLimit?.['reactive-base-delay-ms'] ?? ''),
+          reactiveMaxDelaySeconds: String(providerRateLimit?.['reactive-max-delay-seconds'] ?? ''),
+          reactiveJitterMs: String(providerRateLimit?.['reactive-jitter-ms'] ?? ''),
+          adaptiveEnabled: normalizeBooleanDefaultTrue(providerRateLimit?.['adaptive-enabled']),
+          adaptiveIncreaseOnSuccess: Boolean(providerRateLimit?.['adaptive-increase-on-success']),
+          adaptiveDecreaseFactor: String(providerRateLimit?.['adaptive-decrease-factor'] ?? ''),
+          adaptiveMinRateLimit: String(providerRateLimit?.['adaptive-min-rate-limit'] ?? ''),
+          adaptivePersistDebounceSeconds: String(
+            providerRateLimit?.['adaptive-persist-debounce-seconds'] ?? ''
+          ),
+          overrides: parseProviderRateLimitOverrides(providerRateLimit?.overrides),
+        },
         wsAuth: Boolean(parsed['ws-auth']),
         reasoningDefaultsByFormat: parseReasoningDefaultsByFormat(
           parsed['default-reasoning-on-ingress-by-format']
@@ -797,14 +966,19 @@ export function useVisualConfig() {
         }
 
         setStringInDoc(doc, ['auth-dir'], values.authDir);
-        const apiKeys = values.apiKeysText
-          .split('\n')
-          .map((key) => key.trim())
-          .filter(Boolean);
-        if (apiKeys.length > 0) {
-          doc.setIn(['api-keys'], apiKeys);
-        } else if (docHas(doc, ['api-keys'])) {
-          doc.deleteIn(['api-keys']);
+        const apiKeyEntries = serializeApiKeyEntriesForYaml(values.apiKeyEntries);
+        if (apiKeyEntries.length > 0) {
+          doc.setIn(['api-key-entries'], apiKeyEntries);
+          if (docHas(doc, ['api-keys'])) {
+            doc.deleteIn(['api-keys']);
+          }
+        } else {
+          if (docHas(doc, ['api-key-entries'])) {
+            doc.deleteIn(['api-key-entries']);
+          }
+          if (docHas(doc, ['api-keys'])) {
+            doc.deleteIn(['api-keys']);
+          }
         }
         deleteLegacyApiKeysProvider(doc);
 
@@ -820,6 +994,95 @@ export function useVisualConfig() {
         setIntFromStringInDoc(doc, ['request-retry'], values.requestRetry);
         setIntFromStringInDoc(doc, ['max-retry-credentials'], values.maxRetryCredentials);
         setIntFromStringInDoc(doc, ['max-retry-interval'], values.maxRetryInterval);
+        if (
+          docHas(doc, ['provider-rate-limit']) ||
+          values.providerRateLimit.enabled !== true ||
+          values.providerRateLimit.scope !== 'credential' ||
+          values.providerRateLimit.rateLimit.trim() ||
+          values.providerRateLimit.rateWindowSeconds.trim() ||
+          values.providerRateLimit.maxStreamConcurrency.trim() ||
+          values.providerRateLimit.reactiveBaseDelayMs.trim() ||
+          values.providerRateLimit.reactiveMaxDelaySeconds.trim() ||
+          values.providerRateLimit.reactiveJitterMs.trim() ||
+          values.providerRateLimit.adaptiveEnabled !== true ||
+          values.providerRateLimit.adaptiveIncreaseOnSuccess !== false ||
+          values.providerRateLimit.adaptiveDecreaseFactor.trim() ||
+          values.providerRateLimit.adaptiveMinRateLimit.trim() ||
+          values.providerRateLimit.adaptivePersistDebounceSeconds.trim() ||
+          values.providerRateLimit.overrides.length > 0
+        ) {
+          ensureMapInDoc(doc, ['provider-rate-limit']);
+          setBooleanInDoc(doc, ['provider-rate-limit', 'enabled'], values.providerRateLimit.enabled);
+          doc.setIn(['provider-rate-limit', 'scope'], values.providerRateLimit.scope);
+          setIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'rate-limit'],
+            values.providerRateLimit.rateLimit
+          );
+          setIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'rate-window-seconds'],
+            values.providerRateLimit.rateWindowSeconds
+          );
+          setIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'max-stream-concurrency'],
+            values.providerRateLimit.maxStreamConcurrency
+          );
+          setIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'reactive-base-delay-ms'],
+            values.providerRateLimit.reactiveBaseDelayMs
+          );
+          setIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'reactive-max-delay-seconds'],
+            values.providerRateLimit.reactiveMaxDelaySeconds
+          );
+          setIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'reactive-jitter-ms'],
+            values.providerRateLimit.reactiveJitterMs
+          );
+          setBooleanInDoc(
+            doc,
+            ['provider-rate-limit', 'adaptive-enabled'],
+            values.providerRateLimit.adaptiveEnabled
+          );
+          setBooleanInDoc(
+            doc,
+            ['provider-rate-limit', 'adaptive-increase-on-success'],
+            values.providerRateLimit.adaptiveIncreaseOnSuccess
+          );
+          const adaptiveFactor = values.providerRateLimit.adaptiveDecreaseFactor.trim();
+          if (adaptiveFactor === '') {
+            if (docHas(doc, ['provider-rate-limit', 'adaptive-decrease-factor'])) {
+              doc.deleteIn(['provider-rate-limit', 'adaptive-decrease-factor']);
+            }
+          } else {
+            const parsed = Number(adaptiveFactor);
+            if (Number.isFinite(parsed)) {
+              doc.setIn(['provider-rate-limit', 'adaptive-decrease-factor'], parsed);
+            }
+          }
+          setPositiveIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'adaptive-min-rate-limit'],
+            values.providerRateLimit.adaptiveMinRateLimit
+          );
+          setPositiveIntFromStringInDoc(
+            doc,
+            ['provider-rate-limit', 'adaptive-persist-debounce-seconds'],
+            values.providerRateLimit.adaptivePersistDebounceSeconds
+          );
+          const overrideItems = serializeProviderRateLimitOverrides(values.providerRateLimit.overrides);
+          if (overrideItems.length > 0) {
+            doc.setIn(['provider-rate-limit', 'overrides'], overrideItems);
+          } else if (docHas(doc, ['provider-rate-limit', 'overrides'])) {
+            doc.deleteIn(['provider-rate-limit', 'overrides']);
+          }
+          deleteIfMapEmpty(doc, ['provider-rate-limit']);
+        }
         setBooleanInDoc(doc, ['ws-auth'], values.wsAuth);
         const reasoningDefaults = serializeReasoningDefaultsByFormat(
           values.reasoningDefaultsByFormat

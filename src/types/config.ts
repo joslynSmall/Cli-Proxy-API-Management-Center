@@ -11,10 +11,43 @@ export interface QuotaExceededConfig {
   switchPreviewModel?: boolean;
 }
 
+export interface ProviderRateLimitConfig {
+  enabled?: boolean;
+  scope?: 'credential' | 'provider' | 'provider-model' | string;
+  rateLimit?: number;
+  rateWindowSeconds?: number;
+  maxStreamConcurrency?: number;
+  reactiveBaseDelayMs?: number;
+  reactiveMaxDelaySeconds?: number;
+  reactiveJitterMs?: number;
+  adaptiveEnabled?: boolean;
+  adaptiveIncreaseOnSuccess?: boolean;
+  adaptiveDecreaseFactor?: number;
+  adaptiveMinRateLimit?: number;
+  adaptivePersistDebounceSeconds?: number;
+  overrides?: ProviderRateLimitOverride[];
+}
+
+export interface ProviderRateLimitOverride {
+  provider?: string;
+  authId?: string;
+  model?: string;
+  mode?: 'auto' | 'manual' | string;
+  enabled?: boolean;
+  scope?: 'credential' | 'provider' | 'provider-model' | string;
+  rateLimit?: number;
+  rateWindowSeconds?: number;
+  maxStreamConcurrency?: number;
+  reactiveBaseDelayMs?: number;
+  reactiveMaxDelaySeconds?: number;
+  reactiveJitterMs?: number;
+}
+
 export interface Config {
   debug?: boolean;
   proxyUrl?: string;
   requestRetry?: number;
+  providerRateLimit?: ProviderRateLimitConfig;
   quotaExceeded?: QuotaExceededConfig;
   usageStatisticsEnabled?: boolean;
   requestLog?: boolean;
@@ -23,7 +56,7 @@ export interface Config {
   wsAuth?: boolean;
   forceModelPrefix?: boolean;
   routingStrategy?: string;
-  apiKeys?: string[];
+  apiKeyEntries?: ConfigApiKeyEntry[];
   ampcode?: AmpcodeConfig;
   geminiApiKeys?: GeminiKeyConfig[];
   codexApiKeys?: ProviderKeyConfig[];
@@ -34,10 +67,17 @@ export interface Config {
   raw?: Record<string, unknown>;
 }
 
+export interface ConfigApiKeyEntry {
+  apiKey: string;
+  allowedSuppliers?: string[];
+  allowedModels?: string[];
+}
+
 export type RawConfigSection =
   | 'debug'
   | 'proxy-url'
   | 'request-retry'
+  | 'provider-rate-limit'
   | 'quota-exceeded'
   | 'usage-statistics-enabled'
   | 'request-log'
@@ -46,7 +86,7 @@ export type RawConfigSection =
   | 'ws-auth'
   | 'force-model-prefix'
   | 'routing/strategy'
-  | 'api-keys'
+  | 'api-key-entries'
   | 'ampcode'
   | 'gemini-api-key'
   | 'codex-api-key'

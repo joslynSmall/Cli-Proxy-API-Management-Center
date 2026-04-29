@@ -1,13 +1,15 @@
-import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
+import { apiKeysApi } from '@/services/api';
 import { useNotificationStore } from '@/stores';
 import styles from './VisualConfigEditor.module.scss';
 import { copyToClipboard } from '@/utils/clipboard';
 import type {
   PayloadFilterRule,
+  VisualApiKeyEntry,
   PayloadModelEntry,
   PayloadParamEntry,
   PayloadParamValidationErrorCode,
@@ -163,37 +165,86 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
   disabled,
   onChange,
 }: {
-  value: string;
+  value: VisualApiKeyEntry[];
   disabled?: boolean;
-  onChange: (nextValue: string) => void;
+  onChange: (nextValue: VisualApiKeyEntry[]) => void;
 }) {
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
-  const apiKeys = useMemo(
+  const entries = useMemo(
     () =>
       value
-        .split('\n')
-        .map((key) => key.trim())
-        .filter(Boolean),
+        .map((entry) => ({
+          id: entry.id || makeClientId(),
+          apiKey: String(entry.apiKey ?? '').trim(),
+          allowedSuppliers: Array.from(
+            new Set(
+              (Array.isArray(entry.allowedSuppliers) ? entry.allowedSuppliers : [])
+                .map((item) => String(item ?? '').trim())
+                .filter(Boolean)
+            )
+          ),
+          allowedModels: Array.from(
+            new Set(
+              (Array.isArray(entry.allowedModels) ? entry.allowedModels : [])
+                .map((item) => String(item ?? '').trim())
+                .filter(Boolean)
+            )
+          ),
+        }))
+        .filter((entry) => entry.apiKey),
     [value]
   );
-  const [apiKeyIds, setApiKeyIds] = useState(() => apiKeys.map(() => makeClientId()));
-  const renderApiKeyIds = useMemo(() => {
-    if (apiKeyIds.length === apiKeys.length) return apiKeyIds;
-    if (apiKeyIds.length > apiKeys.length) return apiKeyIds.slice(0, apiKeys.length);
-    return [
-      ...apiKeyIds,
-      ...Array.from({ length: apiKeys.length - apiKeyIds.length }, () => makeClientId()),
-    ];
-  }, [apiKeyIds, apiKeys.length]);
 
   const apiKeyInputId = useId();
   const apiKeyHintId = `${apiKeyInputId}-hint`;
   const apiKeyErrorId = `${apiKeyInputId}-error`;
+  const supplierSearchInputId = `${apiKeyInputId}-supplier-search`;
+  const modelSearchInputId = `${apiKeyInputId}-model-search`;
   const [modalOpen, setModalOpen] = useState(false);
   const [editingApiKeyId, setEditingApiKeyId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
+  const [allowedSuppliers, setAllowedSuppliers] = useState<string[]>([]);
+  const [allowedModels, setAllowedModels] = useState<string[]>([]);
+  const [supplierFilter, setSupplierFilter] = useState('');
+  const [modelFilter, setModelFilter] = useState('');
+  const [scopeOptions, setScopeOptions] = useState<{ suppliers: string[]; models: string[] }>({
+    suppliers: [],
+    models: [],
+  });
+  const [scopeOptionsLoading, setScopeOptionsLoading] = useState(true);
+  const [scopeOptionsError, setScopeOptionsError] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setScopeOptionsLoading(true);
+    setScopeOptionsError(null);
+
+    apiKeysApi
+      .getEntryOptions()
+      .then((options) => {
+        if (cancelled) return;
+        setScopeOptions({
+          suppliers: options.suppliers,
+          models: options.models,
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message.trim() : '';
+        setScopeOptions({ suppliers: [], models: [] });
+        setScopeOptionsError(message || 'failed');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setScopeOptionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function generateSecureApiKey(): string {
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -205,14 +256,23 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
   const openAddModal = () => {
     setEditingApiKeyId(null);
     setInputValue('');
+    setAllowedSuppliers([]);
+    setAllowedModels([]);
+    setSupplierFilter('');
+    setModelFilter('');
     setFormError('');
     setModalOpen(true);
   };
 
   const openEditModal = (apiKeyId: string) => {
-    const editingIndex = renderApiKeyIds.findIndex((id) => id === apiKeyId);
+    const entry = entries.find((item) => item.id === apiKeyId);
+    if (!entry) return;
     setEditingApiKeyId(apiKeyId);
-    setInputValue(apiKeys[editingIndex] ?? '');
+    setInputValue(entry.apiKey);
+    setAllowedSuppliers(entry.allowedSuppliers);
+    setAllowedModels(entry.allowedModels);
+    setSupplierFilter('');
+    setModelFilter('');
     setFormError('');
     setModalOpen(true);
   };
@@ -221,18 +281,39 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
     setModalOpen(false);
     setInputValue('');
     setEditingApiKeyId(null);
+    setAllowedSuppliers([]);
+    setAllowedModels([]);
+    setSupplierFilter('');
+    setModelFilter('');
     setFormError('');
   };
 
-  const updateApiKeys = (nextKeys: string[]) => {
-    onChange(nextKeys.join('\n'));
+  const updateEntries = (nextEntries: VisualApiKeyEntry[]) => {
+    const sanitized = nextEntries
+      .map((entry) => ({
+        id: entry.id || makeClientId(),
+        apiKey: String(entry.apiKey ?? '').trim(),
+        allowedSuppliers: Array.from(
+          new Set(
+            (Array.isArray(entry.allowedSuppliers) ? entry.allowedSuppliers : [])
+              .map((item) => String(item ?? '').trim())
+              .filter(Boolean)
+          )
+        ),
+        allowedModels: Array.from(
+          new Set(
+            (Array.isArray(entry.allowedModels) ? entry.allowedModels : [])
+              .map((item) => String(item ?? '').trim())
+              .filter(Boolean)
+          )
+        ),
+      }))
+      .filter((entry) => entry.apiKey);
+    onChange(sanitized);
   };
 
-  const handleDelete = (apiKeyId: string) => {
-    const index = renderApiKeyIds.findIndex((id) => id === apiKeyId);
-    if (index < 0) return;
-    setApiKeyIds(renderApiKeyIds.filter((id) => id !== apiKeyId));
-    updateApiKeys(apiKeys.filter((_, i) => i !== index));
+  const handleDelete = (entryId: string) => {
+    updateEntries(entries.filter((entry) => entry.id !== entryId));
   };
 
   const handleSave = () => {
@@ -246,22 +327,23 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
       return;
     }
 
-    const editingIndex = editingApiKeyId
-      ? renderApiKeyIds.findIndex((id) => id === editingApiKeyId)
-      : -1;
-    const nextKeys =
-      editingApiKeyId === null
-        ? [...apiKeys, trimmed]
-        : apiKeys.map((key, idx) => (idx === editingIndex ? trimmed : key));
+    const nextEntry: VisualApiKeyEntry = {
+      id: editingApiKeyId ?? makeClientId(),
+      apiKey: trimmed,
+      allowedSuppliers: Array.from(new Set(allowedSuppliers.map((item) => item.trim()).filter(Boolean))),
+      allowedModels: Array.from(new Set(allowedModels.map((item) => item.trim()).filter(Boolean))),
+    };
+
     if (editingApiKeyId === null) {
-      setApiKeyIds([...renderApiKeyIds, makeClientId()]);
+      updateEntries([...entries, nextEntry]);
+    } else {
+      updateEntries(entries.map((entry) => (entry.id === editingApiKeyId ? nextEntry : entry)));
     }
-    updateApiKeys(nextKeys);
     closeModal();
   };
 
-  const handleCopy = async (apiKey: string) => {
-    const copied = await copyToClipboard(apiKey);
+  const handleCopy = async (entry: VisualApiKeyEntry) => {
+    const copied = await copyToClipboard(entry.apiKey);
     showNotification(
       t(copied ? 'notification.link_copied' : 'notification.copy_failed'),
       copied ? 'success' : 'error'
@@ -273,6 +355,42 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
     setFormError('');
   };
 
+  const toggleScopeValue = (
+    current: string[],
+    valueToToggle: string,
+    setter: (next: string[]) => void
+  ) => {
+    if (current.includes(valueToToggle)) {
+      setter(current.filter((item) => item !== valueToToggle));
+      return;
+    }
+    setter([...current, valueToToggle]);
+  };
+
+  const filteredSuppliers = useMemo(() => {
+    const keyword = supplierFilter.trim().toLowerCase();
+    if (!keyword) return scopeOptions.suppliers;
+    return scopeOptions.suppliers.filter((item) => item.toLowerCase().includes(keyword));
+  }, [scopeOptions.suppliers, supplierFilter]);
+
+  const filteredModels = useMemo(() => {
+    const keyword = modelFilter.trim().toLowerCase();
+    if (!keyword) return scopeOptions.models;
+    return scopeOptions.models.filter((item) => item.toLowerCase().includes(keyword));
+  }, [scopeOptions.models, modelFilter]);
+  const allSuppliersSelected = useMemo(
+    () =>
+      scopeOptions.suppliers.length > 0 &&
+      scopeOptions.suppliers.every((supplier) => allowedSuppliers.includes(supplier)),
+    [allowedSuppliers, scopeOptions.suppliers]
+  );
+  const allModelsSelected = useMemo(
+    () =>
+      scopeOptions.models.length > 0 &&
+      scopeOptions.models.every((model) => allowedModels.includes(model)),
+    [allowedModels, scopeOptions.models]
+  );
+
   return (
     <div className="form-group" style={{ marginBottom: 0 }}>
       <div className={styles.blockHeaderRow}>
@@ -282,24 +400,37 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
         </Button>
       </div>
 
-      {apiKeys.length === 0 ? (
+      {entries.length === 0 ? (
         <div className={styles.emptyState}>{t('config_management.visual.api_keys.empty')}</div>
       ) : (
         <div className="item-list" style={{ marginTop: 4 }}>
-          {apiKeys.map((key, index) => (
-            <div key={renderApiKeyIds[index] ?? `${key}-${index}`} className="item-row">
+          {entries.map((entry, index) => (
+            <div key={entry.id} className="item-row">
               <div className="item-meta">
                 <div className="pill">#{index + 1}</div>
                 <div className="item-title">
                   {t('config_management.visual.api_keys.input_label')}
                 </div>
-                <div className="item-subtitle">{maskApiKey(String(key || ''))}</div>
+                <div className="item-subtitle">{maskApiKey(String(entry.apiKey || ''))}</div>
+                <div className={styles.apiKeyScopeSummary}>
+                  {entry.allowedSuppliers.length > 0
+                    ? t('config_management.visual.api_keys.suppliers_selected', {
+                        count: entry.allowedSuppliers.length,
+                      })
+                    : t('config_management.visual.api_keys.suppliers_unrestricted')}
+                  {' · '}
+                  {entry.allowedModels.length > 0
+                    ? t('config_management.visual.api_keys.models_selected', {
+                        count: entry.allowedModels.length,
+                      })
+                    : t('config_management.visual.api_keys.models_unrestricted')}
+                </div>
               </div>
               <div className="item-actions">
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => handleCopy(key)}
+                  onClick={() => handleCopy(entry)}
                   disabled={disabled}
                 >
                   {t('common.copy')}
@@ -307,7 +438,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => openEditModal(renderApiKeyIds[index] ?? '')}
+                  onClick={() => openEditModal(entry.id)}
                   disabled={disabled}
                 >
                   {t('config_management.visual.common.edit')}
@@ -315,7 +446,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
                 <Button
                   variant="danger"
                   size="sm"
-                  onClick={() => handleDelete(renderApiKeyIds[index] ?? '')}
+                  onClick={() => handleDelete(entry.id)}
                   disabled={disabled}
                 >
                   {t('config_management.visual.common.delete')}
@@ -383,6 +514,138 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
             </div>
           )}
         </div>
+
+        <div className={styles.apiKeyScopeSection}>
+          <div className={styles.apiKeyScopeHeader}>
+            <label>{t('config_management.visual.api_keys.suppliers_label')}</label>
+            <div className={styles.apiKeyScopeActions}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled || scopeOptions.suppliers.length === 0 || allSuppliersSelected}
+                onClick={() =>
+                  setAllowedSuppliers((current) =>
+                    Array.from(new Set([...current, ...scopeOptions.suppliers]))
+                  )
+                }
+              >
+                {t('config_management.visual.api_keys.select_all')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled || allowedSuppliers.length === 0}
+                onClick={() => setAllowedSuppliers([])}
+              >
+                {t('config_management.visual.api_keys.clear_selection')}
+              </Button>
+            </div>
+          </div>
+          <input
+            id={supplierSearchInputId}
+            className="input"
+            placeholder={t('config_management.visual.api_keys.scope_search_placeholder')}
+            value={supplierFilter}
+            onChange={(e) => setSupplierFilter(e.target.value)}
+            disabled={disabled}
+          />
+          {scopeOptionsLoading ? (
+            <div className={styles.emptyState}>
+              {t('config_management.visual.api_keys.scope_loading')}
+            </div>
+          ) : filteredSuppliers.length === 0 ? (
+            <div className={styles.emptyState}>
+              {t('config_management.visual.api_keys.scope_empty')}
+            </div>
+          ) : (
+            <div className={styles.apiKeyScopeOptions}>
+              {filteredSuppliers.map((supplier) => (
+                <label key={supplier} className={styles.apiKeyScopeOption}>
+                  <input
+                    type="checkbox"
+                    checked={allowedSuppliers.includes(supplier)}
+                    disabled={disabled}
+                    onChange={() =>
+                      toggleScopeValue(allowedSuppliers, supplier, setAllowedSuppliers)
+                    }
+                  />
+                  <span>{supplier}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="hint">{t('config_management.visual.api_keys.suppliers_hint')}</div>
+        </div>
+
+        <div className={styles.apiKeyScopeSection}>
+          <div className={styles.apiKeyScopeHeader}>
+            <label>{t('config_management.visual.api_keys.models_label')}</label>
+            <div className={styles.apiKeyScopeActions}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled || scopeOptions.models.length === 0 || allModelsSelected}
+                onClick={() =>
+                  setAllowedModels((current) =>
+                    Array.from(new Set([...current, ...scopeOptions.models]))
+                  )
+                }
+              >
+                {t('config_management.visual.api_keys.select_all')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled || allowedModels.length === 0}
+                onClick={() => setAllowedModels([])}
+              >
+                {t('config_management.visual.api_keys.clear_selection')}
+              </Button>
+            </div>
+          </div>
+          <input
+            id={modelSearchInputId}
+            className="input"
+            placeholder={t('config_management.visual.api_keys.scope_search_placeholder')}
+            value={modelFilter}
+            onChange={(e) => setModelFilter(e.target.value)}
+            disabled={disabled}
+          />
+          {scopeOptionsLoading ? (
+            <div className={styles.emptyState}>
+              {t('config_management.visual.api_keys.scope_loading')}
+            </div>
+          ) : filteredModels.length === 0 ? (
+            <div className={styles.emptyState}>
+              {t('config_management.visual.api_keys.scope_empty')}
+            </div>
+          ) : (
+            <div className={styles.apiKeyScopeOptions}>
+              {filteredModels.map((model) => (
+                <label key={model} className={styles.apiKeyScopeOption}>
+                  <input
+                    type="checkbox"
+                    checked={allowedModels.includes(model)}
+                    disabled={disabled}
+                    onChange={() => toggleScopeValue(allowedModels, model, setAllowedModels)}
+                  />
+                  <span>{model}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="hint">{t('config_management.visual.api_keys.models_hint')}</div>
+        </div>
+
+        {scopeOptionsError ? (
+          <div className="hint">
+            {t('config_management.visual.api_keys.scope_options_failed')}
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

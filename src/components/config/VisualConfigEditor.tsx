@@ -35,6 +35,7 @@ import type {
   PayloadFilterRule,
   PayloadParamValidationErrorCode,
   PayloadRule,
+  ProviderRateLimitOverrideEntry,
   ReasoningIngressFormatOption,
   VisualConfigFieldPath,
   VisualConfigValidationErrorCode,
@@ -42,7 +43,7 @@ import type {
   VisualConfigValues,
 } from '@/types/visualConfig';
 import { makeClientId } from '@/types/visualConfig';
-import { reasoningDefaultsApi } from '@/services/api';
+import { configApi, reasoningDefaultsApi } from '@/services/api';
 import {
   ApiKeysCardEditor,
   PayloadFilterRulesEditor,
@@ -79,6 +80,11 @@ interface VisualConfigEditorProps {
   disabled?: boolean;
   onChange: (values: Partial<VisualConfigValues>) => void;
 }
+
+type ProviderRateLimitOptions = {
+  providers: string[];
+  models: string[];
+};
 
 function getValidationMessage(
   t: ReturnType<typeof useTranslation>['t'],
@@ -240,6 +246,8 @@ export function VisualConfigEditor({
   const shouldRenderFloatingSidebar = !isMobile && isFloatingSidebar && isCurrentLayer;
   const routingStrategyLabelId = useId();
   const routingStrategyHintId = `${routingStrategyLabelId}-hint`;
+  const providerRateLimitScopeLabelId = useId();
+  const providerRateLimitScopeHintId = `${providerRateLimitScopeLabelId}-hint`;
   const keepaliveInputId = useId();
   const keepaliveHintId = `${keepaliveInputId}-hint`;
   const keepaliveErrorId = `${keepaliveInputId}-error`;
@@ -251,6 +259,10 @@ export function VisualConfigEditor({
     useState<ReasoningIngressFormatOption[]>(FALLBACK_REASONING_OPTIONS);
   const [reasoningOptionsLoading, setReasoningOptionsLoading] = useState(true);
   const [reasoningOptionsLoadError, setReasoningOptionsLoadError] = useState<string | null>(null);
+  const [providerRateLimitOptions, setProviderRateLimitOptions] = useState<ProviderRateLimitOptions>({
+    providers: [],
+    models: [],
+  });
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const sidebarAnchorRef = useRef<HTMLElement | null>(null);
   const floatingSidebarRef = useRef<HTMLDivElement | null>(null);
@@ -271,6 +283,42 @@ export function VisualConfigEditor({
   const requestRetryError = getValidationMessage(t, validationErrors?.requestRetry);
   const maxRetryCredentialsError = getValidationMessage(t, validationErrors?.maxRetryCredentials);
   const maxRetryIntervalError = getValidationMessage(t, validationErrors?.maxRetryInterval);
+  const providerRateLimitRateError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.rateLimit']
+  );
+  const providerRateLimitWindowError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.rateWindowSeconds']
+  );
+  const providerRateLimitConcurrencyError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.maxStreamConcurrency']
+  );
+  const providerRateLimitBaseDelayError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.reactiveBaseDelayMs']
+  );
+  const providerRateLimitMaxDelayError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.reactiveMaxDelaySeconds']
+  );
+  const providerRateLimitJitterError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.reactiveJitterMs']
+  );
+  const providerRateLimitAdaptiveFactorError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.adaptiveDecreaseFactor']
+  );
+  const providerRateLimitAdaptiveMinRateError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.adaptiveMinRateLimit']
+  );
+  const providerRateLimitAdaptiveDebounceError = getValidationMessage(
+    t,
+    validationErrors?.['providerRateLimit.adaptivePersistDebounceSeconds']
+  );
   const keepaliveError = getValidationMessage(t, validationErrors?.['streaming.keepaliveSeconds']);
   const bootstrapRetriesError = getValidationMessage(
     t,
@@ -286,7 +334,7 @@ export function VisualConfigEditor({
   );
 
   const handleApiKeysTextChange = useCallback(
-    (apiKeysText: string) => onChange({ apiKeysText }),
+    (apiKeyEntries: VisualConfigValues['apiKeyEntries']) => onChange({ apiKeyEntries }),
     [onChange]
   );
   const handlePayloadDefaultRulesChange = useCallback(
@@ -309,6 +357,72 @@ export function VisualConfigEditor({
     (payloadFilterRules: PayloadFilterRule[]) => onChange({ payloadFilterRules }),
     [onChange]
   );
+  const patchProviderRateLimit = useCallback(
+    (patch: Partial<VisualConfigValues['providerRateLimit']>) =>
+      onChange({
+        providerRateLimit: {
+          ...values.providerRateLimit,
+          ...patch,
+        },
+      }),
+    [onChange, values.providerRateLimit]
+  );
+  const addProviderRateLimitOverride = useCallback(() => {
+    const next: ProviderRateLimitOverrideEntry = {
+      id: makeClientId(),
+      provider: '',
+      authId: '',
+      model: '',
+      mode: 'auto',
+      scope: 'provider-model',
+      rateLimit: '',
+    };
+    patchProviderRateLimit({
+      overrides: [...values.providerRateLimit.overrides, next],
+    });
+  }, [patchProviderRateLimit, values.providerRateLimit.overrides]);
+  const removeProviderRateLimitOverride = useCallback(
+    (id: string) => {
+      patchProviderRateLimit({
+        overrides: values.providerRateLimit.overrides.filter((item) => item.id !== id),
+      });
+    },
+    [patchProviderRateLimit, values.providerRateLimit.overrides]
+  );
+  const updateProviderRateLimitOverride = useCallback(
+    (id: string, patch: Partial<ProviderRateLimitOverrideEntry>) => {
+      patchProviderRateLimit({
+        overrides: values.providerRateLimit.overrides.map((item) =>
+          item.id === id ? { ...item, ...patch } : item
+        ),
+      });
+    },
+    [patchProviderRateLimit, values.providerRateLimit.overrides]
+  );
+  const providerRateLimitProviderOptions = useMemo(() => {
+    const valuesSet = new Set<string>();
+    providerRateLimitOptions.providers.forEach((item) => {
+      const normalized = item.trim();
+      if (normalized) valuesSet.add(normalized);
+    });
+    values.providerRateLimit.overrides.forEach((item) => {
+      const normalized = item.provider.trim();
+      if (normalized) valuesSet.add(normalized);
+    });
+    return Array.from(valuesSet).sort();
+  }, [providerRateLimitOptions.providers, values.providerRateLimit.overrides]);
+  const providerRateLimitModelOptions = useMemo(() => {
+    const valuesSet = new Set<string>();
+    providerRateLimitOptions.models.forEach((item) => {
+      const normalized = item.trim();
+      if (normalized) valuesSet.add(normalized);
+    });
+    values.providerRateLimit.overrides.forEach((item) => {
+      const normalized = item.model.trim();
+      if (normalized) valuesSet.add(normalized);
+    });
+    return Array.from(valuesSet).sort();
+  }, [providerRateLimitOptions.models, values.providerRateLimit.overrides]);
   const reasoningFormatSpecs = useMemo(() => {
     const map = new Map<string, ReasoningIngressFormatOption>();
     for (const item of reasoningOptions) {
@@ -445,6 +559,33 @@ export function VisualConfigEditor({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    configApi
+      .getProviderRateLimitOptions()
+      .then((payload) => {
+        if (cancelled) return;
+        const providers = Array.isArray((payload as { providers?: unknown }).providers)
+          ? ((payload as { providers: unknown[] }).providers
+              .map((item) => String(item ?? '').trim())
+              .filter(Boolean) as string[])
+          : [];
+        const models = Array.isArray((payload as { models?: unknown }).models)
+          ? ((payload as { models: unknown[] }).models
+              .map((item) => String(item ?? '').trim())
+              .filter(Boolean) as string[])
+          : [];
+        setProviderRateLimitOptions({ providers, models });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProviderRateLimitOptions({ providers: [], models: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const countErrors = useCallback(
     (fields: VisualConfigFieldPath[]) =>
       fields.reduce((total, field) => total + (validationErrors?.[field] ? 1 : 0), 0),
@@ -493,7 +634,20 @@ export function VisualConfigEditor({
         title: t('config_management.visual.sections.network.title'),
         description: t('config_management.visual.sections.network.description'),
         icon: IconTrendingUp,
-        errorCount: countErrors(['requestRetry', 'maxRetryCredentials', 'maxRetryInterval']),
+        errorCount: countErrors([
+          'requestRetry',
+          'maxRetryCredentials',
+          'maxRetryInterval',
+          'providerRateLimit.rateLimit',
+          'providerRateLimit.rateWindowSeconds',
+          'providerRateLimit.maxStreamConcurrency',
+          'providerRateLimit.reactiveBaseDelayMs',
+          'providerRateLimit.reactiveMaxDelaySeconds',
+          'providerRateLimit.reactiveJitterMs',
+          'providerRateLimit.adaptiveDecreaseFactor',
+          'providerRateLimit.adaptiveMinRateLimit',
+          'providerRateLimit.adaptivePersistDebounceSeconds',
+        ]),
       },
       {
         id: 'quota',
@@ -979,7 +1133,7 @@ export function VisualConfigEditor({
               />
               <div className={styles.subsection}>
                 <ApiKeysCardEditor
-                  value={values.apiKeysText}
+                  value={values.apiKeyEntries}
                   disabled={disabled}
                   onChange={handleApiKeysTextChange}
                 />
@@ -1089,6 +1243,179 @@ export function VisualConfigEditor({
                   onChange={(e) => onChange({ maxRetryInterval: e.target.value })}
                   disabled={disabled}
                   error={maxRetryIntervalError}
+                />
+                <ToggleRow
+                  title={t('config_management.visual.sections.network.provider_rate_limit_enabled')}
+                  description={t(
+                    'config_management.visual.sections.network.provider_rate_limit_enabled_desc'
+                  )}
+                  checked={values.providerRateLimit.enabled}
+                  disabled={disabled}
+                  onChange={(enabled) => patchProviderRateLimit({ enabled })}
+                />
+                <FieldShell
+                  label={t('config_management.visual.sections.network.provider_rate_limit_scope')}
+                  labelId={providerRateLimitScopeLabelId}
+                  hint={t('config_management.visual.sections.network.provider_rate_limit_scope_hint')}
+                  hintId={providerRateLimitScopeHintId}
+                >
+                  <Select
+                    value={values.providerRateLimit.scope}
+                    options={[
+                      {
+                        value: 'credential',
+                        label: t(
+                          'config_management.visual.sections.network.provider_rate_limit_scope_credential'
+                        ),
+                      },
+                      {
+                        value: 'provider',
+                        label: t(
+                          'config_management.visual.sections.network.provider_rate_limit_scope_provider'
+                        ),
+                      },
+                      {
+                        value: 'provider-model',
+                        label: t(
+                          'config_management.visual.sections.network.provider_rate_limit_scope_provider_model'
+                        ),
+                      },
+                    ]}
+                    id={`${providerRateLimitScopeLabelId}-select`}
+                    disabled={disabled}
+                    ariaLabelledBy={providerRateLimitScopeLabelId}
+                    ariaDescribedBy={providerRateLimitScopeHintId}
+                    onChange={(nextValue) =>
+                      patchProviderRateLimit({
+                        scope: nextValue as VisualConfigValues['providerRateLimit']['scope'],
+                      })
+                    }
+                  />
+                </FieldShell>
+                <Input
+                  label={t('config_management.visual.sections.network.provider_rate_limit_rate')}
+                  type="number"
+                  placeholder="40"
+                  value={values.providerRateLimit.rateLimit}
+                  onChange={(e) => patchProviderRateLimit({ rateLimit: e.target.value })}
+                  disabled={disabled}
+                  error={providerRateLimitRateError}
+                />
+                <Input
+                  label={t('config_management.visual.sections.network.provider_rate_limit_window')}
+                  type="number"
+                  placeholder="60"
+                  value={values.providerRateLimit.rateWindowSeconds}
+                  onChange={(e) => patchProviderRateLimit({ rateWindowSeconds: e.target.value })}
+                  disabled={disabled}
+                  error={providerRateLimitWindowError}
+                />
+                <Input
+                  label={t(
+                    'config_management.visual.sections.network.provider_rate_limit_max_concurrency'
+                  )}
+                  type="number"
+                  placeholder="5"
+                  value={values.providerRateLimit.maxStreamConcurrency}
+                  onChange={(e) => patchProviderRateLimit({ maxStreamConcurrency: e.target.value })}
+                  disabled={disabled}
+                  error={providerRateLimitConcurrencyError}
+                />
+                <Input
+                  label={t(
+                    'config_management.visual.sections.network.provider_rate_limit_base_delay_ms'
+                  )}
+                  type="number"
+                  placeholder="1000"
+                  value={values.providerRateLimit.reactiveBaseDelayMs}
+                  onChange={(e) => patchProviderRateLimit({ reactiveBaseDelayMs: e.target.value })}
+                  disabled={disabled}
+                  error={providerRateLimitBaseDelayError}
+                />
+                <Input
+                  label={t(
+                    'config_management.visual.sections.network.provider_rate_limit_max_delay_seconds'
+                  )}
+                  type="number"
+                  placeholder="60"
+                  value={values.providerRateLimit.reactiveMaxDelaySeconds}
+                  onChange={(e) =>
+                    patchProviderRateLimit({ reactiveMaxDelaySeconds: e.target.value })
+                  }
+                  disabled={disabled}
+                  error={providerRateLimitMaxDelayError}
+                />
+                <Input
+                  label={t(
+                    'config_management.visual.sections.network.provider_rate_limit_jitter_ms'
+                  )}
+                  type="number"
+                  placeholder="300"
+                  value={values.providerRateLimit.reactiveJitterMs}
+                  onChange={(e) => patchProviderRateLimit({ reactiveJitterMs: e.target.value })}
+                  disabled={disabled}
+                  error={providerRateLimitJitterError}
+                />
+                <ToggleRow
+                  title={t('config_management.visual.sections.network.provider_rate_limit_adaptive_enabled')}
+                  description={t(
+                    'config_management.visual.sections.network.provider_rate_limit_adaptive_enabled_desc'
+                  )}
+                  checked={values.providerRateLimit.adaptiveEnabled}
+                  disabled={disabled}
+                  onChange={(adaptiveEnabled) => patchProviderRateLimit({ adaptiveEnabled })}
+                />
+                <ToggleRow
+                  title={t(
+                    'config_management.visual.sections.network.provider_rate_limit_adaptive_increase_on_success'
+                  )}
+                  description={t(
+                    'config_management.visual.sections.network.provider_rate_limit_adaptive_increase_on_success_desc'
+                  )}
+                  checked={values.providerRateLimit.adaptiveIncreaseOnSuccess}
+                  disabled={disabled || !values.providerRateLimit.adaptiveEnabled}
+                  onChange={(adaptiveIncreaseOnSuccess) =>
+                    patchProviderRateLimit({ adaptiveIncreaseOnSuccess })
+                  }
+                />
+                <Input
+                  label={t(
+                    'config_management.visual.sections.network.provider_rate_limit_adaptive_decrease_factor'
+                  )}
+                  type="number"
+                  placeholder="0.8"
+                  value={values.providerRateLimit.adaptiveDecreaseFactor}
+                  onChange={(e) =>
+                    patchProviderRateLimit({ adaptiveDecreaseFactor: e.target.value })
+                  }
+                  disabled={disabled || !values.providerRateLimit.adaptiveEnabled}
+                  error={providerRateLimitAdaptiveFactorError}
+                />
+                <Input
+                  label={t(
+                    'config_management.visual.sections.network.provider_rate_limit_adaptive_min_rate_limit'
+                  )}
+                  type="number"
+                  placeholder="1"
+                  value={values.providerRateLimit.adaptiveMinRateLimit}
+                  onChange={(e) =>
+                    patchProviderRateLimit({ adaptiveMinRateLimit: e.target.value })
+                  }
+                  disabled={disabled || !values.providerRateLimit.adaptiveEnabled}
+                  error={providerRateLimitAdaptiveMinRateError}
+                />
+                <Input
+                  label={t(
+                    'config_management.visual.sections.network.provider_rate_limit_adaptive_persist_debounce_seconds'
+                  )}
+                  type="number"
+                  placeholder="2"
+                  value={values.providerRateLimit.adaptivePersistDebounceSeconds}
+                  onChange={(e) =>
+                    patchProviderRateLimit({ adaptivePersistDebounceSeconds: e.target.value })
+                  }
+                  disabled={disabled || !values.providerRateLimit.adaptiveEnabled}
+                  error={providerRateLimitAdaptiveDebounceError}
                 />
                 <FieldShell
                   label={t('config_management.visual.sections.network.routing_strategy')}
@@ -1226,6 +1553,150 @@ export function VisualConfigEditor({
                   onClick={addReasoningDefaultEntry}
                 >
                   {t('config_management.visual.sections.network.reasoning_add')}
+                </Button>
+              </SectionSubsection>
+
+              <SectionSubsection
+                title={t('config_management.visual.sections.network.provider_rate_limit_overrides_title')}
+                description={t(
+                  'config_management.visual.sections.network.provider_rate_limit_overrides_desc'
+                )}
+              >
+                {values.providerRateLimit.overrides.length === 0 ? (
+                  <p className={styles.subsectionDescription}>
+                    {t('config_management.visual.sections.network.provider_rate_limit_overrides_empty')}
+                  </p>
+                ) : null}
+                {values.providerRateLimit.overrides.map((entry) => (
+                  <SectionGrid key={entry.id}>
+                    <Input
+                      label={t(
+                        'config_management.visual.sections.network.provider_rate_limit_override_provider'
+                      )}
+                      placeholder="openai-compatibility"
+                      value={entry.provider}
+                      onChange={(e) =>
+                        updateProviderRateLimitOverride(entry.id, { provider: e.target.value })
+                      }
+                      disabled={disabled}
+                      list="provider-rate-limit-provider-options"
+                    />
+                    <Input
+                      label={t(
+                        'config_management.visual.sections.network.provider_rate_limit_override_model'
+                      )}
+                      placeholder="gpt-4.1"
+                      value={entry.model}
+                      onChange={(e) =>
+                        updateProviderRateLimitOverride(entry.id, { model: e.target.value })
+                      }
+                      disabled={disabled}
+                      list="provider-rate-limit-model-options"
+                    />
+                    <FieldShell
+                      label={t(
+                        'config_management.visual.sections.network.provider_rate_limit_override_mode'
+                      )}
+                    >
+                      <Select
+                        value={entry.mode}
+                        options={[
+                          {
+                            value: 'auto',
+                            label: t(
+                              'config_management.visual.sections.network.provider_rate_limit_override_mode_auto'
+                            ),
+                          },
+                          {
+                            value: 'manual',
+                            label: t(
+                              'config_management.visual.sections.network.provider_rate_limit_override_mode_manual'
+                            ),
+                          },
+                        ]}
+                        disabled={disabled}
+                        onChange={(mode) =>
+                          updateProviderRateLimitOverride(entry.id, {
+                            mode: mode as ProviderRateLimitOverrideEntry['mode'],
+                          })
+                        }
+                      />
+                    </FieldShell>
+                    <Input
+                      label={t(
+                        'config_management.visual.sections.network.provider_rate_limit_override_rate_limit'
+                      )}
+                      type="number"
+                      placeholder="40"
+                      value={entry.rateLimit}
+                      onChange={(e) =>
+                        updateProviderRateLimitOverride(entry.id, { rateLimit: e.target.value })
+                      }
+                      disabled={disabled}
+                    />
+                    <FieldShell
+                      label={t(
+                        'config_management.visual.sections.network.provider_rate_limit_override_scope'
+                      )}
+                    >
+                      <Select
+                        value={entry.scope}
+                        options={[
+                          {
+                            value: 'credential',
+                            label: t(
+                              'config_management.visual.sections.network.provider_rate_limit_scope_credential'
+                            ),
+                          },
+                          {
+                            value: 'provider',
+                            label: t(
+                              'config_management.visual.sections.network.provider_rate_limit_scope_provider'
+                            ),
+                          },
+                          {
+                            value: 'provider-model',
+                            label: t(
+                              'config_management.visual.sections.network.provider_rate_limit_scope_provider_model'
+                            ),
+                          },
+                        ]}
+                        disabled={disabled}
+                        onChange={(scope) =>
+                          updateProviderRateLimitOverride(entry.id, {
+                            scope: scope as ProviderRateLimitOverrideEntry['scope'],
+                          })
+                        }
+                      />
+                    </FieldShell>
+                    <FieldShell
+                      label={t(
+                        'config_management.visual.sections.network.provider_rate_limit_override_actions'
+                      )}
+                    >
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => removeProviderRateLimitOverride(entry.id)}
+                      >
+                        {t('config_management.visual.sections.network.provider_rate_limit_override_remove')}
+                      </Button>
+                    </FieldShell>
+                  </SectionGrid>
+                ))}
+                <datalist id="provider-rate-limit-provider-options">
+                  {providerRateLimitProviderOptions.map((item) => (
+                    <option key={item} value={item} />
+                  ))}
+                </datalist>
+                <datalist id="provider-rate-limit-model-options">
+                  {providerRateLimitModelOptions.map((item) => (
+                    <option key={item} value={item} />
+                  ))}
+                </datalist>
+                <Button variant="secondary" size="sm" disabled={disabled} onClick={addProviderRateLimitOverride}>
+                  {t('config_management.visual.sections.network.provider_rate_limit_override_add')}
                 </Button>
               </SectionSubsection>
 

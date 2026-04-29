@@ -74,7 +74,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     apiKeysCache.current = [];
-  }, [apiBase, config?.apiKeys]);
+  }, [apiBase, config?.apiKeyEntries]);
 
   // Update time every 60 seconds
   useEffect(() => {
@@ -115,7 +115,7 @@ export function DashboardPage() {
       return apiKeysCache.current;
     }
 
-    const configKeys = normalizeApiKeyList(config?.apiKeys);
+    const configKeys = normalizeApiKeyList(config?.apiKeyEntries);
     if (configKeys.length) {
       apiKeysCache.current = configKeys;
       return configKeys;
@@ -131,7 +131,7 @@ export function DashboardPage() {
     } catch {
       return [];
     }
-  }, [config?.apiKeys]);
+  }, [config?.apiKeyEntries]);
 
   const fetchModels = useCallback(async () => {
     if (connectionStatus !== 'connected' || !apiBase) {

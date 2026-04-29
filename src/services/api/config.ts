@@ -41,6 +41,21 @@ export const configApi = {
   updateRequestRetry: (retryCount: number) => apiClient.put('/request-retry', { value: retryCount }),
 
   /**
+   * 获取 Provider 统一限流配置
+   */
+  getProviderRateLimit: () => apiClient.get('/provider-rate-limit'),
+
+  /**
+   * 更新 Provider 统一限流配置
+   */
+  updateProviderRateLimit: (value: unknown) => apiClient.put('/provider-rate-limit', { value }),
+
+  /**
+   * Provider 限流可选项（providers/models）
+   */
+  getProviderRateLimitOptions: () => apiClient.get('/provider-rate-limit/options'),
+
+  /**
    * 配额回退：切换项目
    */
   updateSwitchProject: (enabled: boolean) =>

@@ -165,7 +165,7 @@ export function SystemPage() {
       return apiKeysCache.current;
     }
 
-    const configKeys = normalizeApiKeyList(config?.apiKeys);
+    const configKeys = normalizeApiKeyList(config?.apiKeyEntries);
     if (configKeys.length) {
       apiKeysCache.current = configKeys;
       return configKeys;
@@ -182,7 +182,7 @@ export function SystemPage() {
       console.warn('Auto loading API keys for models failed:', err);
       return [];
     }
-  }, [config?.apiKeys]);
+  }, [config?.apiKeyEntries]);
 
   const fetchModels = async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
     if (auth.connectionStatus !== 'connected') {

@@ -73,7 +73,7 @@ export const OAUTH_PROVIDERS = {
 export const API_ENDPOINTS = {
   CONFIG: '/config',
   LOGIN: '/login',
-  API_KEYS: '/api-keys',
+  API_KEYS: '/api-key-entries',
   PROVIDERS: '/providers',
   AUTH_FILES: '/auth-files',
   OAUTH: '/oauth',

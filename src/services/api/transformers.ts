@@ -9,7 +9,7 @@ import type {
   AmpcodeModelMapping,
   AmpcodeUpstreamApiKeyMapping
 } from '@/types';
-import type { Config } from '@/types/config';
+import type { Config, ConfigApiKeyEntry } from '@/types/config';
 import { buildHeaderObject } from '@/utils/headers';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -303,6 +303,35 @@ const normalizeOpenAIProvider = (provider: unknown): OpenAIProviderConfig | null
   return result;
 };
 
+const normalizeTopLevelApiKeyEntries = (raw: unknown): ConfigApiKeyEntry[] => {
+  if (!Array.isArray(raw)) return [];
+
+  const seen = new Set<string>();
+  const entries: ConfigApiKeyEntry[] = [];
+  raw.forEach((entry) => {
+    const normalized = normalizeApiKeyEntry(entry);
+    if (!normalized) return;
+    const apiKey = normalized.apiKey.trim();
+    if (!apiKey || seen.has(apiKey)) return;
+    seen.add(apiKey);
+
+    const record = isRecord(entry) ? entry : {};
+    const allowedSuppliers = normalizeExcludedModels(
+      record['allowed-suppliers'] ?? record.allowedSuppliers ?? record.allowed_suppliers
+    );
+    const allowedModels = normalizeExcludedModels(
+      record['allowed-models'] ?? record.allowedModels ?? record.allowed_models
+    );
+    entries.push({
+      apiKey,
+      ...(allowedSuppliers.length ? { allowedSuppliers } : {}),
+      ...(allowedModels.length ? { allowedModels } : {})
+    });
+  });
+
+  return entries;
+};
+
 const normalizeOauthExcluded = (payload: unknown): Record<string, string[]> | undefined => {
   if (!isRecord(payload)) return undefined;
   const source = payload['oauth-excluded-models'] ?? payload.items ?? payload;
@@ -452,9 +481,9 @@ export const normalizeConfigResponse = (raw: unknown): Config => {
   if (strategyRaw !== undefined && strategyRaw !== null) {
     config.routingStrategy = String(strategyRaw);
   }
-  const apiKeysRaw = raw['api-keys'] ?? raw.apiKeys;
-  if (Array.isArray(apiKeysRaw)) {
-    config.apiKeys = apiKeysRaw.map((key) => String(key)).filter((key) => key.trim() !== '');
+  const apiKeyEntries = normalizeTopLevelApiKeyEntries(raw['api-key-entries'] ?? raw.apiKeyEntries);
+  if (apiKeyEntries.length > 0) {
+    config.apiKeyEntries = apiKeyEntries;
   }
 
   const geminiList = raw['gemini-api-key'] ?? raw.geminiApiKey ?? raw.geminiApiKeys;
